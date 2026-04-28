@@ -2,6 +2,8 @@ function showStatus(message) {
   $("#statusText").text(message);
 }
 
+let tickInFlight = false;
+
 function toLocalDateString(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -9,21 +11,48 @@ function toLocalDateString(value) {
   return date.toLocaleString();
 }
 
-function rowTemplate(job) {
+function processRowTemplate(job) {
+  const actionCell = job.job_id
+    ? `<button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>`
+    : "-";
   return `
-    <tr data-job-id="${job.job_id}">
+    <tr>
       <td>${job.file_url || "-"}</td>
       <td>${job.job_id || "-"}</td>
       <td>${job.status || "-"}</td>
       <td>${job.stage || "-"}</td>
       <td>${job.progress ?? 0}</td>
       <td>${toLocalDateString(job.updated_at_remote || job.updatedAt)}</td>
+      <td>${actionCell}</td>
+    </tr>
+  `;
+}
+
+function queueRowTemplate(job) {
+  return `
+    <tr data-id="${job._id}">
+      <td>${job.queue_order ?? "-"}</td>
+      <td>${job.file_url || "-"}</td>
+      <td>${toLocalDateString(job.createdAt)}</td>
       <td>
-        <div class="row-actions">
-          <button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>
-          <button class="danger cancel-row-btn" data-job-id="${job.job_id}">Cancel</button>
-        </div>
+        <button class="danger force-replace-btn" data-id="${job._id}">
+          Force Add to Process
+        </button>
       </td>
+    </tr>
+  `;
+}
+
+function finishedRowTemplate(job) {
+  return `
+    <tr>
+      <td>${job.file_url || "-"}</td>
+      <td>${job.job_id || "-"}</td>
+      <td>${job.status || "-"}</td>
+      <td>${job.stage || "-"}</td>
+      <td>${job.progress ?? 0}</td>
+      <td>${toLocalDateString(job.finished_at || job.updatedAt)}</td>
+      <td>${job.error || "-"}</td>
     </tr>
   `;
 }
@@ -39,13 +68,34 @@ async function loadSettings() {
   $("#callbackUrl").val(s.callback_url || "");
   $("#chunkSize").val(s.chunk_size || 1000);
   $("#chunkOverlap").val(s.chunk_overlap || 200);
+  $("#forceFlag").val(String(s.force ?? true));
   $("#promptText").val(s.prompt || "");
 }
 
-async function loadJobs() {
-  const response = await $.getJSON("/api/jobs");
-  const rows = (response.data || []).map(rowTemplate).join("");
-  $("#jobsBody").html(rows || `<tr><td colspan="7">No data yet.</td></tr>`);
+async function loadProcess() {
+  const response = await $.getJSON("/api/jobs/process");
+  const job = response.data;
+  if (!job) {
+    $("#processBody").html(`<tr><td colspan="7">No active processing item.</td></tr>`);
+    return;
+  }
+  $("#processBody").html(processRowTemplate(job));
+}
+
+async function loadQueue() {
+  const response = await $.getJSON("/api/jobs/queue");
+  const rows = (response.data || []).map(queueRowTemplate).join("");
+  $("#queueBody").html(rows || `<tr><td colspan="4">Queue is empty.</td></tr>`);
+}
+
+async function loadFinished() {
+  const response = await $.getJSON("/api/jobs/finished");
+  const rows = (response.data || []).map(finishedRowTemplate).join("");
+  $("#finishedBody").html(rows || `<tr><td colspan="7">No completed or failed jobs yet.</td></tr>`);
+}
+
+async function loadQueueViews() {
+  await Promise.all([loadProcess(), loadQueue(), loadFinished()]);
 }
 
 async function saveSettings(event) {
@@ -59,6 +109,7 @@ async function saveSettings(event) {
     callback_url: $("#callbackUrl").val(),
     chunk_size: Number($("#chunkSize").val()),
     chunk_overlap: Number($("#chunkOverlap").val()),
+    force: $("#forceFlag").val() === "true",
     prompt: $("#promptText").val(),
   };
 
@@ -80,20 +131,35 @@ async function ingestUrls(event) {
   }
 
   $("#submitIngestBtn").prop("disabled", true);
-  showStatus("Submitting ingestion jobs...");
+  showStatus("Adding URLs to queue and auto-starting first item...");
 
   try {
     await $.ajax({
-      url: "/api/jobs/ingest",
+      url: "/api/jobs/queue",
       method: "POST",
       contentType: "application/json",
       data: JSON.stringify({ urls }),
     });
     $("#urlInput").val("");
-    await loadJobs();
-    showStatus("Ingestion complete.");
+    await loadQueueViews();
+    showStatus("URLs queued. First item auto-started if processor was idle.");
   } finally {
     $("#submitIngestBtn").prop("disabled", false);
+  }
+}
+
+async function executeOne() {
+  $("#executeOneBtn").prop("disabled", true);
+  showStatus("Executing next queue item...");
+  try {
+    await $.ajax({
+      url: "/api/jobs/process/trigger",
+      method: "POST",
+    });
+    await loadQueueViews();
+    showStatus("Execute one done.");
+  } finally {
+    $("#executeOneBtn").prop("disabled", false);
   }
 }
 
@@ -103,47 +169,87 @@ async function refreshOne(jobId) {
     url: `/api/jobs/${encodeURIComponent(jobId)}/refresh`,
     method: "POST",
   });
-  await loadJobs();
+  await loadQueueViews();
   showStatus(`Refreshed ${jobId}.`);
 }
 
-async function refreshAll() {
+async function refreshAllState() {
   $("#refreshAllBtn").prop("disabled", true);
-  showStatus("Refreshing all job statuses...");
+  showStatus("Refreshing all states...");
   try {
     await $.ajax({
       url: "/api/jobs/refresh-all",
       method: "POST",
     });
-    await loadJobs();
-    showStatus("All jobs refreshed.");
+    await loadQueueViews();
+    showStatus("Refresh all state completed.");
   } finally {
     $("#refreshAllBtn").prop("disabled", false);
   }
 }
 
-async function cancelOne(jobId) {
-  showStatus(`Cancelling ${jobId} ...`);
+async function forceReplace(queueId) {
+  showStatus("Force replacing current process...");
   await $.ajax({
-    url: `/api/jobs/${encodeURIComponent(jobId)}/cancel`,
+    url: `/api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
     method: "POST",
   });
-  await loadJobs();
-  showStatus(`Cancelled ${jobId}.`);
+  await loadQueueViews();
+  showStatus("Force add queue to process completed.");
 }
 
-async function cancelAll() {
-  $("#cancelAllBtn").prop("disabled", true);
-  showStatus("Cancelling all jobs...");
+async function runTick() {
+  if (tickInFlight) return;
+  tickInFlight = true;
   try {
     await $.ajax({
-      url: "/api/jobs/cancel-all",
+      url: "/api/jobs/process/tick",
       method: "POST",
     });
-    await loadJobs();
-    showStatus("All jobs cancel request sent.");
+    await loadQueueViews();
+    showStatus("Auto refresh done.");
   } finally {
-    $("#cancelAllBtn").prop("disabled", false);
+    tickInFlight = false;
+  }
+}
+
+function setActiveTab(tabName) {
+  const tabs = ["process", "queue", "finished"];
+  tabs.forEach((tab) => {
+    const isActive = tab === tabName;
+    $(`.tab-btn[data-tab="${tab}"]`).toggleClass("active", isActive);
+    $(`#tab-${tab}`).toggleClass("is-hidden", !isActive);
+  });
+}
+
+function setupTabs() {
+  $(".tab-btn").on("click", function onTabClick() {
+    setActiveTab($(this).data("tab"));
+  });
+  setActiveTab("process");
+}
+
+function setupAutoTick() {
+  setInterval(() => {
+    runTick().catch((error) => {
+      showStatus(`Auto refresh failed: ${error.responseJSON?.detail || error.message}`);
+    });
+  }, 30000);
+}
+
+function extractError(error) {
+  const detail = error.responseJSON?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail) return JSON.stringify(detail);
+  return error.responseJSON?.message || error.message;
+}
+
+async function bootstrap() {
+  try {
+    await loadSettings();
+    await loadQueueViews();
+  } catch (error) {
+    showStatus(`Failed to load initial data: ${extractError(error)}`);
   }
 }
 
@@ -163,20 +269,15 @@ async function askQna(event) {
 }
 
 $(document).ready(async () => {
-  try {
-    await loadSettings();
-    await loadJobs();
-  } catch (error) {
-    showStatus(
-      `Failed to load initial data: ${error.responseJSON?.detail || error.message}`
-    );
-  }
+  await bootstrap();
+  setupTabs();
+  setupAutoTick();
 
   $("#settingsForm").on("submit", async (event) => {
     try {
       await saveSettings(event);
     } catch (error) {
-      showStatus(`Save settings failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`Save settings failed: ${extractError(error)}`);
     }
   });
 
@@ -184,41 +285,41 @@ $(document).ready(async () => {
     try {
       await ingestUrls(event);
     } catch (error) {
-      showStatus(`Ingestion failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`Enqueue failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#executeOneBtn").on("click", async () => {
+    try {
+      await executeOne();
+    } catch (error) {
+      showStatus(`Execute one failed: ${extractError(error)}`);
     }
   });
 
   $("#refreshAllBtn").on("click", async () => {
     try {
-      await refreshAll();
+      await refreshAllState();
     } catch (error) {
-      showStatus(`Refresh all failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`Refresh all failed: ${extractError(error)}`);
     }
   });
 
-  $("#cancelAllBtn").on("click", async () => {
-    try {
-      await cancelAll();
-    } catch (error) {
-      showStatus(`Cancel all failed: ${error.responseJSON?.detail || error.message}`);
-    }
-  });
-
-  $("#jobsBody").on("click", ".refresh-row-btn", async function onClick() {
+  $("#processBody").on("click", ".refresh-row-btn", async function onClick() {
     const jobId = $(this).data("job-id");
     try {
       await refreshOne(jobId);
     } catch (error) {
-      showStatus(`Refresh failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`Refresh failed: ${extractError(error)}`);
     }
   });
 
-  $("#jobsBody").on("click", ".cancel-row-btn", async function onClick() {
-    const jobId = $(this).data("job-id");
+  $("#queueBody").on("click", ".force-replace-btn", async function onClick() {
+    const queueId = $(this).data("id");
     try {
-      await cancelOne(jobId);
+      await forceReplace(queueId);
     } catch (error) {
-      showStatus(`Cancel failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`Force replace failed: ${extractError(error)}`);
     }
   });
 
@@ -226,7 +327,7 @@ $(document).ready(async () => {
     try {
       await askQna(event);
     } catch (error) {
-      showStatus(`QnA failed: ${error.responseJSON?.detail || error.message}`);
+      showStatus(`QnA failed: ${extractError(error)}`);
     }
   });
 });

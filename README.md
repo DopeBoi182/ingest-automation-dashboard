@@ -1,9 +1,12 @@
 # Automation AI Ingestion Dashboard
 
 Single Node.js app with MongoDB + jQuery dashboard to:
-- submit comma-separated URLs into document extractor API one-by-one,
+- enqueue comma-separated URLs into a queue pool,
+- auto-start the first queued URL immediately after submit when worker is idle,
+- process only one active job at a time (single worker),
 - store each job in MongoDB,
-- refresh one or all job statuses,
+- auto-refresh active process status every 30 seconds and continue next queue item,
+- force replace current process by canceling it and starting selected queued item,
 - maintain global settings (`knowledge_source`, `knowledge_tags`, etc.),
 - ask QnA via extractor chat endpoint.
 
@@ -24,12 +27,15 @@ Single Node.js app with MongoDB + jQuery dashboard to:
 Open dashboard at `http://localhost:9001`.
 
 ## Main API endpoints
-- `POST /api/jobs/ingest` with body `{ "urls": "a.com,b.pdf,c.xlsx" }`
-- `GET /api/jobs`
+- `POST /api/jobs/queue` with body `{ "urls": "a.com,b.pdf,c.xlsx" }` (enqueue + auto-start when idle)
+- `POST /api/jobs/process/trigger`
+- `POST /api/jobs/process/tick`
 - `POST /api/jobs/:jobId/refresh`
 - `POST /api/jobs/refresh-all`
-- `POST /api/jobs/:jobId/cancel`
-- `POST /api/jobs/cancel-all`
+- `POST /api/jobs/queue/:id/force-replace`
+- `GET /api/jobs/process`
+- `GET /api/jobs/queue`
+- `GET /api/jobs`
 - `GET /api/settings`
 - `PUT /api/settings`
 - `POST /api/qna` with body `{ "question": "..." }`

@@ -86,6 +86,25 @@ button.secondary:hover {
   margin-top: 10px;
 }
 
+.tab-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  width: auto;
+  min-width: 110px;
+}
+
+.tab-btn.active {
+  background: #1e40af;
+}
+
+.tab-panel.is-hidden {
+  display: none;
+}
+
 .row-actions {
   display: flex;
   gap: 6px;

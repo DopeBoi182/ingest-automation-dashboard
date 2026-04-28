@@ -1,8 +1,13 @@
 const express = require("express");
-const GlobalSetting = require("../models/GlobalSetting");
 const { getOrCreateGlobalSetting, parseTags } = require("../utils/settings");
 
 const router = express.Router();
+
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  return String(value).toLowerCase() === "true";
+}
 
 router.get("/", async (_req, res, next) => {
   try {
@@ -30,7 +35,7 @@ router.put("/", async (req, res, next) => {
     if (body.chunk_overlap !== undefined) {
       current.chunk_overlap = Number(body.chunk_overlap) || 0;
     }
-    if (body.embed !== undefined) current.embed = Boolean(body.embed);
+    if (body.embed !== undefined) current.embed = toBoolean(body.embed, current.embed);
     if (body.vdb_collection !== undefined) {
       current.vdb_collection = String(body.vdb_collection).trim();
     }
@@ -40,14 +45,11 @@ router.put("/", async (req, res, next) => {
     if (body.vector_group !== undefined) {
       current.vector_group = String(body.vector_group).trim();
     }
-    if (body.force !== undefined) current.force = Boolean(body.force);
+    if (body.force !== undefined) current.force = toBoolean(body.force, current.force);
 
     await current.save();
     res.json({ data: current });
   } catch (error) {
-    if (error.code === 11000) {
-      await GlobalSetting.updateOne({ key: "default" }, { $set: { key: "default" } });
-    }
     next(error);
   }
 });

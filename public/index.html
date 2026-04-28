@@ -46,6 +46,13 @@
               Chunk Overlap
               <input type="number" id="chunkOverlap" />
             </label>
+            <label>
+              Force
+              <select id="forceFlag">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
           </div>
           <label>
             Prompt
@@ -58,7 +65,7 @@
       </section>
 
       <section class="card">
-        <h2>Ingest URLs</h2>
+        <h2>Queue URLs</h2>
         <form id="ingestForm">
           <label>
             URL List (comma-separated)
@@ -70,30 +77,73 @@
             ></textarea>
           </label>
           <div class="actions">
-            <button type="submit" id="submitIngestBtn">Process URLs</button>
-            <button type="button" id="refreshAllBtn">Update All Status</button>
-            <button type="button" id="cancelAllBtn" class="danger">Cancel All Jobs</button>
+            <button type="submit" id="submitIngestBtn">Add to Queue + Auto Start</button>
+            <button type="button" id="executeOneBtn">Execute One</button>
+            <button type="button" id="refreshAllBtn" class="secondary">Refresh All State</button>
           </div>
         </form>
       </section>
 
       <section class="card">
-        <h2>Jobs</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>File URL</th>
-                <th>Job ID</th>
-                <th>Status</th>
-                <th>Stage</th>
-                <th>Progress</th>
-                <th>Updated</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="jobsBody"></tbody>
-          </table>
+        <h2>Queue Workflow</h2>
+        <div class="tab-buttons">
+          <button type="button" class="tab-btn active" data-tab="process">Process</button>
+          <button type="button" class="tab-btn" data-tab="queue">Queue</button>
+          <button type="button" class="tab-btn" data-tab="finished">Finished</button>
+        </div>
+
+        <div id="tab-process" class="tab-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File URL</th>
+                  <th>Job ID</th>
+                  <th>Status</th>
+                  <th>Stage</th>
+                  <th>Progress</th>
+                  <th>Updated</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="processBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-queue" class="tab-panel is-hidden">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>File URL</th>
+                  <th>Queued At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="queueBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-finished" class="tab-panel is-hidden">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File URL</th>
+                  <th>Job ID</th>
+                  <th>Status</th>
+                  <th>Stage</th>
+                  <th>Progress</th>
+                  <th>Finished At</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody id="finishedBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

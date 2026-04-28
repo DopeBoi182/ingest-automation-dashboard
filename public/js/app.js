@@ -18,7 +18,12 @@ function rowTemplate(job) {
       <td>${job.stage || "-"}</td>
       <td>${job.progress ?? 0}</td>
       <td>${toLocalDateString(job.updated_at_remote || job.updatedAt)}</td>
-      <td><button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button></td>
+      <td>
+        <div class="row-actions">
+          <button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>
+          <button class="danger cancel-row-btn" data-job-id="${job.job_id}">Cancel</button>
+        </div>
+      </td>
     </tr>
   `;
 }
@@ -117,6 +122,31 @@ async function refreshAll() {
   }
 }
 
+async function cancelOne(jobId) {
+  showStatus(`Cancelling ${jobId} ...`);
+  await $.ajax({
+    url: `/api/jobs/${encodeURIComponent(jobId)}/cancel`,
+    method: "POST",
+  });
+  await loadJobs();
+  showStatus(`Cancelled ${jobId}.`);
+}
+
+async function cancelAll() {
+  $("#cancelAllBtn").prop("disabled", true);
+  showStatus("Cancelling all jobs...");
+  try {
+    await $.ajax({
+      url: "/api/jobs/cancel-all",
+      method: "POST",
+    });
+    await loadJobs();
+    showStatus("All jobs cancel request sent.");
+  } finally {
+    $("#cancelAllBtn").prop("disabled", false);
+  }
+}
+
 async function askQna(event) {
   event.preventDefault();
   const question = $("#questionInput").val().trim();
@@ -166,12 +196,29 @@ $(document).ready(async () => {
     }
   });
 
+  $("#cancelAllBtn").on("click", async () => {
+    try {
+      await cancelAll();
+    } catch (error) {
+      showStatus(`Cancel all failed: ${error.responseJSON?.detail || error.message}`);
+    }
+  });
+
   $("#jobsBody").on("click", ".refresh-row-btn", async function onClick() {
     const jobId = $(this).data("job-id");
     try {
       await refreshOne(jobId);
     } catch (error) {
       showStatus(`Refresh failed: ${error.responseJSON?.detail || error.message}`);
+    }
+  });
+
+  $("#jobsBody").on("click", ".cancel-row-btn", async function onClick() {
+    const jobId = $(this).data("job-id");
+    try {
+      await cancelOne(jobId);
+    } catch (error) {
+      showStatus(`Cancel failed: ${error.responseJSON?.detail || error.message}`);
     }
   });
 

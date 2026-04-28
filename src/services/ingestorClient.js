@@ -33,6 +33,11 @@ async function getJobStatus(jobId) {
   return response.data;
 }
 
+async function cancelJob(jobId) {
+  const response = await client.post(`${env.statusEndpointPrefix}/${jobId}/cancel`);
+  return response.data;
+}
+
 async function askQna(payload) {
   const response = await client.post(env.qnaEndpoint, payload);
   return response.data;
@@ -41,5 +46,6 @@ async function askQna(payload) {
 module.exports = {
   submitExtractJob,
   getJobStatus,
+  cancelJob,
   askQna,
 };

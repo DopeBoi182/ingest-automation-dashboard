@@ -28,6 +28,8 @@ Open dashboard at `http://localhost:9001`.
 - `GET /api/jobs`
 - `POST /api/jobs/:jobId/refresh`
 - `POST /api/jobs/refresh-all`
+- `POST /api/jobs/:jobId/cancel`
+- `POST /api/jobs/cancel-all`
 - `GET /api/settings`
 - `PUT /api/settings`
 - `POST /api/qna` with body `{ "question": "..." }`

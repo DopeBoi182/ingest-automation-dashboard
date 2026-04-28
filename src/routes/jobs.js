@@ -1,7 +1,7 @@
 const express = require("express");
 const Job = require("../models/Job");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
-const { submitExtractJob, getJobStatus } = require("../services/ingestorClient");
+const { submitExtractJob, getJobStatus, cancelJob } = require("../services/ingestorClient");
 
 const router = express.Router();
 
@@ -100,6 +100,51 @@ router.post("/refresh-all", async (_req, res, next) => {
     for (const job of jobs) {
       try {
         const remote = await getJobStatus(job.job_id);
+        const update = mapJobData(job.file_url, remote);
+        const saved = await Job.findOneAndUpdate(
+          { job_id: job.job_id },
+          { $set: update },
+          { new: true }
+        );
+        results.push({ job_id: job.job_id, ok: true, data: saved });
+      } catch (error) {
+        results.push({
+          job_id: job.job_id,
+          ok: false,
+          error: error.response?.data || error.message,
+        });
+      }
+    }
+
+    res.json({ data: results });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:jobId/cancel", async (req, res, next) => {
+  try {
+    const job = await Job.findOne({ job_id: req.params.jobId });
+    if (!job) return res.status(404).json({ message: "Job not found." });
+
+    const remote = await cancelJob(job.job_id);
+    const update = mapJobData(job.file_url, remote);
+    const saved = await Job.findOneAndUpdate({ job_id: job.job_id }, { $set: update }, { new: true });
+
+    res.json({ data: saved });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/cancel-all", async (_req, res, next) => {
+  try {
+    const jobs = await Job.find().sort({ createdAt: 1 });
+    const results = [];
+
+    for (const job of jobs) {
+      try {
+        const remote = await cancelJob(job.job_id);
         const update = mapJobData(job.file_url, remote);
         const saved = await Job.findOneAndUpdate(
           { job_id: job.job_id },

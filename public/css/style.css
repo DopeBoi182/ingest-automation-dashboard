@@ -72,10 +72,28 @@ button.secondary:hover {
   background: #475569;
 }
 
+.danger {
+  background: #dc2626;
+}
+
+.danger:hover {
+  background: #b91c1c;
+}
+
 .actions {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.row-actions button {
+  width: auto;
+  min-width: 74px;
 }
 
 .table-wrap {

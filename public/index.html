@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ingestion Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>KMPlus Ingestion Dashboard</h1>
+
+      <section class="card">
+        <h2>Global Settings</h2>
+        <form id="settingsForm">
+          <div class="grid-2">
+            <label>
+              Knowledge Source
+              <input type="text" id="knowledgeSource" required />
+            </label>
+            <label>
+              Knowledge Tags (comma-separated)
+              <input type="text" id="knowledgeTags" required />
+            </label>
+            <label>
+              Provider
+              <input type="text" id="provider" />
+            </label>
+            <label>
+              VDB Collection
+              <input type="text" id="vdbCollection" />
+            </label>
+            <label>
+              Vector Group
+              <input type="text" id="vectorGroup" />
+            </label>
+            <label>
+              Callback URL
+              <input type="text" id="callbackUrl" />
+            </label>
+            <label>
+              Chunk Size
+              <input type="number" id="chunkSize" />
+            </label>
+            <label>
+              Chunk Overlap
+              <input type="number" id="chunkOverlap" />
+            </label>
+          </div>
+          <label>
+            Prompt
+            <textarea id="promptText" rows="3"></textarea>
+          </label>
+          <div class="actions">
+            <button type="submit">Save Settings</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Ingest URLs</h2>
+        <form id="ingestForm">
+          <label>
+            URL List (comma-separated)
+            <textarea
+              id="urlInput"
+              rows="3"
+              placeholder="a.com,b.pdf,c.xlsx"
+              required
+            ></textarea>
+          </label>
+          <div class="actions">
+            <button type="submit" id="submitIngestBtn">Process URLs</button>
+            <button type="button" id="refreshAllBtn">Update All Status</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Jobs</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>File URL</th>
+                <th>Job ID</th>
+                <th>Status</th>
+                <th>Stage</th>
+                <th>Progress</th>
+                <th>Updated</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Ask AI (QnA)</h2>
+        <form id="qnaForm">
+          <label>
+            Question
+            <input type="text" id="questionInput" required />
+          </label>
+          <div class="actions">
+            <button type="submit">Ask</button>
+          </div>
+        </form>
+        <pre id="qnaResponse"></pre>
+      </section>
+
+      <p id="statusText" class="status">Ready.</p>
+    </main>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/js/app.js"></script>
+  </body>
+</html>

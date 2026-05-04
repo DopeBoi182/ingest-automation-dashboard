@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>S3 Fetcher Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>S3 Fetcher Dashboard</h1>
+      <div class="top-nav">
+        <a href="/" class="nav-link">Ingestion</a>
+        <a href="/s3.html" class="nav-link active">S3 Fetcher</a>
+      </div>
+
+      <section class="card">
+        <h2>List Objects & Generate URLs</h2>
+        <form id="s3QueryForm">
+          <div class="grid-2">
+            <label>
+              Prefix
+              <input type="text" id="prefixInput" placeholder="documents/" />
+            </label>
+            <label>
+              Max Keys
+              <input type="number" id="maxKeysInput" value="100" min="1" max="1000" />
+            </label>
+            <label>
+              URL Mode
+              <select id="modeInput">
+                <option value="presigned">presigned</option>
+                <option value="public">public</option>
+              </select>
+            </label>
+            <label>
+              TTL Seconds (presigned only)
+              <input type="number" id="ttlInput" value="900" min="1" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="generateBtn">Generate URLs</button>
+            <button type="button" id="loadMoreBtn" class="secondary" disabled>Load More</button>
+            <button type="button" id="checkHealthBtn" class="secondary">Check S3 Health</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Generated Files</h2>
+        <div class="actions">
+          <button type="button" id="selectAllBtn" class="secondary">Select All</button>
+          <button type="button" id="clearSelectionBtn" class="secondary">Clear Selection</button>
+          <button type="button" id="ingestSelectedBtn">Ingest Selected</button>
+          <button type="button" id="ingestAllBtn" class="secondary">Ingest All</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 48px;">Pick</th>
+                <th>Object Key</th>
+                <th>Generated URL</th>
+              </tr>
+            </thead>
+            <tbody id="filesBody">
+              <tr><td colspan="3">No files loaded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="statusText" class="status">Ready.</p>
+    </main>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/js/s3.js"></script>
+  </body>
+</html>

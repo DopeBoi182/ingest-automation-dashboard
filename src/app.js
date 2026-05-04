@@ -3,6 +3,7 @@ const express = require("express");
 const jobsRouter = require("./routes/jobs");
 const settingsRouter = require("./routes/settings");
 const qnaRouter = require("./routes/qna");
+const s3Router = require("./routes/s3");
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.post("/callback", (req, res) => {
 app.use("/api/jobs", jobsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/qna", qnaRouter);
+app.use("/api/s3", s3Router);
 
 app.use((err, _req, res, _next) => {
   const status = err.response?.status || err.status || 500;

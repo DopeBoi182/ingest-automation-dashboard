@@ -12,6 +12,14 @@ function toNumber(value, defaultValue) {
   return Number.isNaN(parsed) ? defaultValue : parsed;
 }
 
+function normalizeHostToServiceUrl(host, useHttps) {
+  if (!host) return "";
+  if (host.startsWith("http://") || host.startsWith("https://")) {
+    return host;
+  }
+  return `${useHttps ? "https" : "http"}://${host}`;
+}
+
 const env = {
   port: toNumber(process.env.PORT, 9001),
   mongoUri:
@@ -35,6 +43,18 @@ const env = {
     process.env.DEFAULT_KNOWLEDGE_TAGS || "Oil & Gas Production,Process Engineering",
   defaultForce: toBool(process.env.DEFAULT_FORCE, true),
   requestTimeoutMs: toNumber(process.env.REQUEST_TIMEOUT_MS, 60000),
+  s3Provider: process.env.Storage__Provider || "S3",
+  s3UseHttps: toBool(process.env.USE_HTTPS, true),
+  s3ForcePathStyle: toBool(process.env.FORCE_PATH_STYLE, true),
+  s3PresignTtlSeconds: toNumber(process.env.PRESIGN_TTL_SECONDS, 900),
+  s3Host: process.env.Storage__S3__Host || "",
+  s3Region: process.env.Storage__S3__Region || "ap-south-1",
+  s3AccessKeyId: process.env.Storage__S3__AccessKeyId || "",
+  s3SecretAccessKey: process.env.Storage__S3__SecretAccessKey || "",
+  s3Bucket: process.env.Storage__S3__Bucket || "",
+  s3PublicBaseUrl: (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, ""),
 };
+
+env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);
 
 module.exports = env;

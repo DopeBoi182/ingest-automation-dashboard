@@ -35,9 +35,14 @@ function queueRowTemplate(job) {
       <td>${job.file_url || "-"}</td>
       <td>${toLocalDateString(job.createdAt)}</td>
       <td>
-        <button class="danger force-replace-btn" data-id="${job._id}">
-          Force Add to Process
-        </button>
+        <div class="row-actions">
+          <button class="danger force-replace-btn" data-id="${job._id}">
+            Force Add to Process
+          </button>
+          <button class="secondary delete-queue-btn" data-id="${job._id}">
+            Delete
+          </button>
+        </div>
       </td>
     </tr>
   `;
@@ -198,6 +203,27 @@ async function forceReplace(queueId) {
   showStatus("Force add queue to process completed.");
 }
 
+async function deleteQueueItem(queueId) {
+  showStatus("Deleting queued item...");
+  await $.ajax({
+    url: `/api/jobs/queue/${encodeURIComponent(queueId)}`,
+    method: "DELETE",
+  });
+  await loadQueueViews();
+  showStatus("Queued item deleted.");
+}
+
+async function clearQueue() {
+  showStatus("Clearing queued items...");
+  const response = await $.ajax({
+    url: "/api/jobs/queue",
+    method: "DELETE",
+  });
+  await loadQueueViews();
+  const deletedCount = response.data?.deletedCount ?? 0;
+  showStatus(`Cleared ${deletedCount} queued item(s).`);
+}
+
 async function runTick() {
   if (tickInFlight) return;
   tickInFlight = true;
@@ -305,6 +331,14 @@ $(document).ready(async () => {
     }
   });
 
+  $("#clearQueueBtn").on("click", async () => {
+    try {
+      await clearQueue();
+    } catch (error) {
+      showStatus(`Clear queue failed: ${extractError(error)}`);
+    }
+  });
+
   $("#processBody").on("click", ".refresh-row-btn", async function onClick() {
     const jobId = $(this).data("job-id");
     try {
@@ -320,6 +354,15 @@ $(document).ready(async () => {
       await forceReplace(queueId);
     } catch (error) {
       showStatus(`Force replace failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#queueBody").on("click", ".delete-queue-btn", async function onClick() {
+    const queueId = $(this).data("id");
+    try {
+      await deleteQueueItem(queueId);
+    } catch (error) {
+      showStatus(`Delete queued item failed: ${extractError(error)}`);
     }
   });
 

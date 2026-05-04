@@ -19,6 +19,29 @@ h1 {
   margin-top: 0;
 }
 
+.top-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.nav-link {
+  display: inline-block;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2937;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.nav-link.active {
+  background: #1e40af;
+  border-color: #1e40af;
+  color: #fff;
+}
+
 .card {
   background: #fff;
   border: 1px solid #d1d5db;
@@ -131,6 +154,10 @@ td {
   padding: 8px;
   vertical-align: top;
   font-size: 14px;
+}
+
+.url-cell {
+  word-break: break-all;
 }
 
 .status {

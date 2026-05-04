@@ -263,6 +263,27 @@ router.get("/queue", async (_req, res, next) => {
   }
 });
 
+router.delete("/queue/:id", async (req, res, next) => {
+  try {
+    const deleted = await Job.findOneAndDelete({ _id: req.params.id, queue_status: "queued" });
+    if (!deleted) {
+      return res.status(404).json({ message: "Queued item not found." });
+    }
+    return res.json({ data: deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/queue", async (_req, res, next) => {
+  try {
+    const result = await Job.deleteMany({ queue_status: "queued" });
+    return res.json({ data: { deletedCount: result.deletedCount ?? 0 } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/finished", async (_req, res, next) => {
   try {
     const finished = await Job.find({ queue_status: { $in: ["completed", "failed"] } }).sort({

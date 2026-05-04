@@ -25,6 +25,7 @@ Single Node.js app with MongoDB + jQuery dashboard to:
    - or `npm start`
 
 Open dashboard at `http://localhost:9001`.
+- S3 page: `http://localhost:9001/s3.html`
 
 ## Main API endpoints
 - `POST /api/jobs/queue` with body `{ "urls": "a.com,b.pdf,c.xlsx" }` (enqueue + auto-start when idle)
@@ -39,6 +40,9 @@ Open dashboard at `http://localhost:9001`.
 - `GET /api/settings`
 - `PUT /api/settings`
 - `POST /api/qna` with body `{ "question": "..." }`
+- `GET /api/s3/health`
+- `GET /api/s3/files/urls?prefix=...&maxKeys=100&mode=presigned|public&ttlSeconds=900`
+- `POST /api/s3/ingest` with body `{ "keys": ["path/file.pdf"], "mode": "presigned|public", "ttlSeconds": 900 }`
 
 ## External endpoints used
 - Health: `http://16.79.175.142:806/`

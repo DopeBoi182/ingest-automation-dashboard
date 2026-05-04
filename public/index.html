@@ -9,6 +9,10 @@
   <body>
     <main class="container">
       <h1>KMPlus Ingestion Dashboard</h1>
+      <div class="top-nav">
+        <a href="/" class="nav-link active">Ingestion</a>
+        <a href="/s3.html" class="nav-link">S3 Fetcher</a>
+      </div>
 
       <section class="card">
         <h2>Global Settings</h2>
@@ -112,6 +116,9 @@
         </div>
 
         <div id="tab-queue" class="tab-panel is-hidden">
+          <div class="actions">
+            <button type="button" id="clearQueueBtn" class="secondary">Clear Queue</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>

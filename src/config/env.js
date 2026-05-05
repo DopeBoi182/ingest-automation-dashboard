@@ -35,11 +35,18 @@ function normalizeUploadDir(value) {
   return path.join(process.cwd(), raw);
 }
 
+function normalizeDataFile(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return path.join(process.cwd(), "data", "storage.json");
+  if (path.isAbsolute(raw)) return raw;
+  return path.join(process.cwd(), raw);
+}
+
 const env = {
   port: toNumber(process.env.PORT, 9001),
   appBasePath: normalizeBasePath(process.env.APP_BASE_PATH),
   uploadDir: normalizeUploadDir(process.env.UPLOAD_DIR),
-  dataFile: process.env.DATA_FILE || "data/storage.json",
+  dataFile: normalizeDataFile(process.env.DATA_FILE),
   externalBaseUrl: process.env.EXTERNAL_BASE_URL || "http://16.79.175.142:806",
   extractEndpoint: process.env.EXTRACT_ENDPOINT || "/api/v1/jobs/extract",
   statusEndpointPrefix: process.env.STATUS_ENDPOINT_PREFIX || "/api/v1/jobs",

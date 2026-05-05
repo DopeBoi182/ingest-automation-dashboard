@@ -1,9 +1,9 @@
 const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const env = require("../config/env");
 
-const dataFilePath =
-  process.env.DATA_FILE || path.join(__dirname, "..", "..", "data", "storage.json");
+const dataFilePath = env.dataFile;
 
 const defaultData = {
   jobs: [],

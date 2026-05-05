@@ -1,7 +1,7 @@
 const express = require("express");
 const fs = require("fs");
-const path = require("path");
 const multer = require("multer");
+const env = require("../config/env");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
 const {
   submitExtractJob,
@@ -27,7 +27,7 @@ const {
 
 const router = express.Router();
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled", "cancelled", "error"]);
-const uploadDir = path.join(process.cwd(), "data", "uploads");
+const uploadDir = env.uploadDir;
 fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({ dest: uploadDir });
 

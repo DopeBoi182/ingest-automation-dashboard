@@ -80,7 +80,6 @@ async function submitExtractJobWithFile(fileInput, setting) {
   if (!filePath) {
     throw new Error("Missing file_path for file-based ingestion.");
   }
-  form.append("url", "");
   form.append("file", fs.createReadStream(filePath), {
     filename: fileInput?.file_name || path.basename(filePath),
     contentType: fileInput?.file_mime || undefined,

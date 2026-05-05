@@ -20,8 +20,16 @@ function normalizeHostToServiceUrl(host, useHttps) {
   return `${useHttps ? "https" : "http"}://${host}`;
 }
 
+function normalizeBasePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "/") return "";
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/, "");
+}
+
 const env = {
   port: toNumber(process.env.PORT, 9001),
+  appBasePath: normalizeBasePath(process.env.APP_BASE_PATH),
   dataFile: process.env.DATA_FILE || "data/storage.json",
   externalBaseUrl: process.env.EXTERNAL_BASE_URL || "http://16.79.175.142:806",
   extractEndpoint: process.env.EXTRACT_ENDPOINT || "/api/v1/jobs/extract",

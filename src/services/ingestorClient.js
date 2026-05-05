@@ -1,4 +1,6 @@
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 const FormData = require("form-data");
 const env = require("../config/env");
 
@@ -10,6 +12,35 @@ const client = axios.create({
 async function submitExtractJob(fileUrl, setting) {
   const form = new FormData();
   form.append("url", fileUrl);
+  form.append("provider", setting.provider);
+  form.append("prompt", setting.prompt);
+  form.append("chunk_size", String(setting.chunk_size));
+  form.append("chunk_overlap", String(setting.chunk_overlap));
+  form.append("embed", String(Boolean(setting.embed)));
+  form.append("vdb_collection", setting.vdb_collection);
+  form.append("callback_url", setting.callback_url || "");
+  form.append("vector_group", setting.vector_group);
+  form.append("knowledge_source", setting.knowledge_source);
+  form.append("knowledge_tags", JSON.stringify(setting.knowledge_tags || []));
+  form.append("force", String(Boolean(setting.force)));
+
+  const response = await client.post(env.extractEndpoint, form, {
+    headers: form.getHeaders(),
+  });
+  return response.data;
+}
+
+async function submitExtractJobWithFile(fileInput, setting) {
+  const form = new FormData();
+  const filePath = String(fileInput?.file_path || "").trim();
+  if (!filePath) {
+    throw new Error("Missing file_path for file-based ingestion.");
+  }
+  form.append("url", "");
+  form.append("file", fs.createReadStream(filePath), {
+    filename: fileInput?.file_name || path.basename(filePath),
+    contentType: fileInput?.file_mime || undefined,
+  });
   form.append("provider", setting.provider);
   form.append("prompt", setting.prompt);
   form.append("chunk_size", String(setting.chunk_size));
@@ -45,6 +76,7 @@ async function askQna(payload) {
 
 module.exports = {
   submitExtractJob,
+  submitExtractJobWithFile,
   getJobStatus,
   cancelJob,
   askQna,

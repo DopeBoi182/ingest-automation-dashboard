@@ -11,13 +11,20 @@ function toLocalDateString(value) {
   return date.toLocaleString();
 }
 
+function renderJobSource(job) {
+  if (job?.input_type === "file") {
+    return job.file_name || "[uploaded file]";
+  }
+  return job?.file_url || "-";
+}
+
 function processRowTemplate(job) {
   const actionCell = job.job_id
     ? `<button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>`
     : "-";
   return `
     <tr>
-      <td>${job.file_url || "-"}</td>
+      <td>${renderJobSource(job)}</td>
       <td>${job.job_id || "-"}</td>
       <td>${job.status || "-"}</td>
       <td>${job.stage || "-"}</td>
@@ -32,7 +39,7 @@ function queueRowTemplate(job) {
   return `
     <tr data-id="${job._id}">
       <td>${job.queue_order ?? "-"}</td>
-      <td>${job.file_url || "-"}</td>
+      <td>${renderJobSource(job)}</td>
       <td>${toLocalDateString(job.createdAt)}</td>
       <td>
         <div class="row-actions">
@@ -51,7 +58,7 @@ function queueRowTemplate(job) {
 function finishedRowTemplate(job) {
   return `
     <tr>
-      <td>${job.file_url || "-"}</td>
+      <td>${renderJobSource(job)}</td>
       <td>${job.job_id || "-"}</td>
       <td>${job.status || "-"}</td>
       <td>${job.stage || "-"}</td>
@@ -63,7 +70,7 @@ function finishedRowTemplate(job) {
 }
 
 async function loadSettings() {
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/settings");
+  const response = await $.getJSON("./api/settings");
   const s = response.data || {};
   $("#knowledgeSource").val(s.knowledge_source || "");
   $("#knowledgeTags").val((s.knowledge_tags || []).join(","));
@@ -78,7 +85,7 @@ async function loadSettings() {
 }
 
 async function loadProcess() {
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/process");
+  const response = await $.getJSON("./api/jobs/process");
   const job = response.data;
   if (!job) {
     $("#processBody").html(`<tr><td colspan="7">No active processing item.</td></tr>`);
@@ -88,13 +95,13 @@ async function loadProcess() {
 }
 
 async function loadQueue() {
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/queue");
+  const response = await $.getJSON("./api/jobs/queue");
   const rows = (response.data || []).map(queueRowTemplate).join("");
   $("#queueBody").html(rows || `<tr><td colspan="4">Queue is empty.</td></tr>`);
 }
 
 async function loadFinished() {
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/finished");
+  const response = await $.getJSON("./api/jobs/finished");
   const rows = (response.data || []).map(finishedRowTemplate).join("");
   $("#finishedBody").html(rows || `<tr><td colspan="7">No completed or failed jobs yet.</td></tr>`);
 }
@@ -119,7 +126,7 @@ async function saveSettings(event) {
   };
 
   await $.ajax({
-    url: "/plhlmsdev/service-ingest/api/settings",
+    url: "./api/settings",
     method: "PUT",
     contentType: "application/json",
     data: JSON.stringify(payload),
@@ -140,7 +147,7 @@ async function ingestUrls(event) {
 
   try {
     await $.ajax({
-      url: "/plhlmsdev/service-ingest/api/jobs/queue",
+      url: "./api/jobs/queue",
       method: "POST",
       contentType: "application/json",
       data: JSON.stringify({ urls }),
@@ -158,7 +165,7 @@ async function executeOne() {
   showStatus("Executing next queue item...");
   try {
     await $.ajax({
-      url: "/plhlmsdev/service-ingest/api/jobs/process/trigger",
+      url: "./api/jobs/process/trigger",
       method: "POST",
     });
     await loadQueueViews();
@@ -171,7 +178,7 @@ async function executeOne() {
 async function refreshOne(jobId) {
   showStatus(`Refreshing ${jobId} ...`);
   await $.ajax({
-    url: `/plhlmsdev/service-ingest/api/jobs/${encodeURIComponent(jobId)}/refresh`,
+    url: `./api/jobs/${encodeURIComponent(jobId)}/refresh`,
     method: "POST",
   });
   await loadQueueViews();
@@ -183,7 +190,7 @@ async function refreshAllState() {
   showStatus("Refreshing all states...");
   try {
     await $.ajax({
-      url: "/plhlmsdev/service-ingest/api/jobs/refresh-all",
+      url: "./api/jobs/refresh-all",
       method: "POST",
     });
     await loadQueueViews();
@@ -196,7 +203,7 @@ async function refreshAllState() {
 async function forceReplace(queueId) {
   showStatus("Force replacing current process...");
   await $.ajax({
-    url: `/plhlmsdev/service-ingest/api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
+    url: `./api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
     method: "POST",
   });
   await loadQueueViews();
@@ -206,7 +213,7 @@ async function forceReplace(queueId) {
 async function deleteQueueItem(queueId) {
   showStatus("Deleting queued item...");
   await $.ajax({
-    url: `/plhlmsdev/service-ingest/api/jobs/queue/${encodeURIComponent(queueId)}`,
+    url: `./api/jobs/queue/${encodeURIComponent(queueId)}`,
     method: "DELETE",
   });
   await loadQueueViews();
@@ -216,7 +223,7 @@ async function deleteQueueItem(queueId) {
 async function clearQueue() {
   showStatus("Clearing queued items...");
   const response = await $.ajax({
-    url: "/plhlmsdev/service-ingest/api/jobs/queue",
+    url: "./api/jobs/queue",
     method: "DELETE",
   });
   await loadQueueViews();
@@ -224,12 +231,54 @@ async function clearQueue() {
   showStatus(`Cleared ${deletedCount} queued item(s).`);
 }
 
+function updateSelectedFilesText() {
+  const input = $("#filesInput").get(0);
+  const files = input?.files ? Array.from(input.files) : [];
+  if (!files.length) {
+    $("#filesSelectedText").text("No files selected.");
+    return;
+  }
+  const names = files.map((file) => file.name).join(", ");
+  $("#filesSelectedText").text(`${files.length} file(s): ${names}`);
+}
+
+async function ingestFiles(event) {
+  event.preventDefault();
+  const input = $("#filesInput").get(0);
+  const files = input?.files ? Array.from(input.files) : [];
+  if (!files.length) {
+    showStatus("Please choose at least one file.");
+    return;
+  }
+
+  const formData = new FormData();
+  files.forEach((file) => formData.append("file", file));
+
+  $("#submitFilesBtn").prop("disabled", true);
+  showStatus("Uploading file(s) to queue and auto-starting first item...");
+  try {
+    await $.ajax({
+      url: "./api/jobs/queue/files",
+      method: "POST",
+      data: formData,
+      processData: false,
+      contentType: false,
+    });
+    $("#filesInput").val("");
+    updateSelectedFilesText();
+    await loadQueueViews();
+    showStatus("Files queued. First item auto-started if processor was idle.");
+  } finally {
+    $("#submitFilesBtn").prop("disabled", false);
+  }
+}
+
 async function runTick() {
   if (tickInFlight) return;
   tickInFlight = true;
   try {
     await $.ajax({
-      url: "/plhlmsdev/service-ingest/api/jobs/process/tick",
+      url: "./api/jobs/process/tick",
       method: "POST",
     });
     await loadQueueViews();
@@ -240,7 +289,7 @@ async function runTick() {
 }
 
 function setActiveTab(tabName) {
-  const tabs = ["process", "queue", "finished"];
+  const tabs = ["process", "queue", "finished", "files"];
   tabs.forEach((tab) => {
     const isActive = tab === tabName;
     $(`.tab-btn[data-tab="${tab}"]`).toggleClass("active", isActive);
@@ -285,7 +334,7 @@ async function askQna(event) {
   if (!question) return;
   showStatus("Sending question...");
   const response = await $.ajax({
-    url: "/plhlmsdev/service-ingest/api/qna",
+    url: "./api/qna",
     method: "POST",
     contentType: "application/json",
     data: JSON.stringify({ question }),
@@ -313,6 +362,18 @@ $(document).ready(async () => {
     } catch (error) {
       showStatus(`Enqueue failed: ${extractError(error)}`);
     }
+  });
+
+  $("#filesForm").on("submit", async (event) => {
+    try {
+      await ingestFiles(event);
+    } catch (error) {
+      showStatus(`Upload files failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#filesInput").on("change", () => {
+    updateSelectedFilesText();
   });
 
   $("#executeOneBtn").on("click", async () => {

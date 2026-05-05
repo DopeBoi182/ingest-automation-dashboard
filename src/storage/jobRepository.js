@@ -97,6 +97,51 @@ async function createQueuedJobsFromUrls(urls) {
       return {
         _id: generateId(),
         file_url: url,
+        input_type: "url",
+        file_name: "",
+        file_path: "",
+        file_mime: "",
+        file_size: 0,
+        job_id: null,
+        status: "queued",
+        stage: "queued",
+        progress: 0,
+        resource_key: "",
+        error: null,
+        raw_response: {},
+        created_at_remote: null,
+        updated_at_remote: null,
+        queue_status: "queued",
+        queue_order: nextOrder,
+        started_at: null,
+        finished_at: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+    });
+    data.jobs.push(...created);
+    return { data, result: created };
+  });
+}
+
+async function createQueuedJobsFromFiles(files) {
+  return updateData(async (data) => {
+    const maxOrder = data.jobs
+      .map((x) => x.queue_order)
+      .filter((x) => Number.isFinite(x))
+      .reduce((acc, n) => Math.max(acc, n), 0);
+    let nextOrder = maxOrder;
+    const timestamp = nowIso();
+    const created = files.map((file) => {
+      nextOrder += 1;
+      return {
+        _id: generateId(),
+        file_url: "",
+        input_type: "file",
+        file_name: String(file.file_name || "").trim(),
+        file_path: String(file.file_path || "").trim(),
+        file_mime: String(file.file_mime || "").trim(),
+        file_size: Number(file.file_size) || 0,
         job_id: null,
         status: "queued",
         stage: "queued",
@@ -156,6 +201,7 @@ module.exports = {
   getActiveProcessingJob,
   getNextQueuedJob,
   createQueuedJobsFromUrls,
+  createQueuedJobsFromFiles,
   updateJobById,
   deleteQueuedById,
   clearQueuedJobs,

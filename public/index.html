@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ingestion Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/plhlmsdev/service-ingest/css/style.css" />
+    <link rel="stylesheet" href="./css/style.css" />
   </head>
   <body>
     <main class="container">
       <h1>KMPlus Ingestion Dashboard</h1>
       <div class="top-nav">
-        <a href="/plhlmsdev/service-ingest/" class="nav-link active">Ingestion</a>
-        <a href="/plhlmsdev/service-ingest/s3.html" class="nav-link">S3 Fetcher</a>
+        <a href="./" class="nav-link active">Ingestion</a>
+        <a href="./s3.html" class="nav-link">S3 Fetcher</a>
       </div>
 
       <section class="card">
@@ -95,6 +95,7 @@
           <button type="button" class="tab-btn active" data-tab="process">Process</button>
           <button type="button" class="tab-btn" data-tab="queue">Queue</button>
           <button type="button" class="tab-btn" data-tab="finished">Finished</button>
+          <button type="button" class="tab-btn" data-tab="files">Files</button>
         </div>
 
         <div id="tab-process" class="tab-panel">
@@ -102,7 +103,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>File URL</th>
+                  <th>Source</th>
                   <th>Job ID</th>
                   <th>Status</th>
                   <th>Stage</th>
@@ -125,7 +126,7 @@
               <thead>
                 <tr>
                   <th>Order</th>
-                  <th>File URL</th>
+                  <th>Source</th>
                   <th>Queued At</th>
                   <th>Action</th>
                 </tr>
@@ -140,7 +141,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>File URL</th>
+                  <th>Source</th>
                   <th>Job ID</th>
                   <th>Status</th>
                   <th>Stage</th>
@@ -152,6 +153,19 @@
               <tbody id="finishedBody"></tbody>
             </table>
           </div>
+        </div>
+
+        <div id="tab-files" class="tab-panel is-hidden">
+          <form id="filesForm">
+            <label>
+              Upload file(s)
+              <input type="file" id="filesInput" multiple required />
+            </label>
+            <div class="actions">
+              <button type="submit" id="submitFilesBtn">Add Files to Queue + Auto Start</button>
+            </div>
+          </form>
+          <small id="filesSelectedText">No files selected.</small>
         </div>
       </section>
 
@@ -173,6 +187,6 @@
     </main>
 
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="/plhlmsdev/service-ingest/js/app.js"></script>
+    <script src="./js/app.js"></script>
   </body>
 </html>

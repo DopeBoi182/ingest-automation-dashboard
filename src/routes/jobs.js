@@ -1,6 +1,14 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
-const { submitExtractJob, getJobStatus, cancelJob } = require("../services/ingestorClient");
+const {
+  submitExtractJob,
+  submitExtractJobWithFile,
+  getJobStatus,
+  cancelJob,
+} = require("../services/ingestorClient");
 const {
   getAllJobs,
   getQueuedJobs,
@@ -11,6 +19,7 @@ const {
   getActiveProcessingJob,
   getNextQueuedJob,
   createQueuedJobsFromUrls,
+  createQueuedJobsFromFiles,
   updateJobById,
   deleteQueuedById,
   clearQueuedJobs,
@@ -18,6 +27,9 @@ const {
 
 const router = express.Router();
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled", "cancelled", "error"]);
+const uploadDir = path.join(process.cwd(), "data", "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({ dest: uploadDir });
 
 function parseUrlInput(urls) {
   if (Array.isArray(urls)) return urls.map((x) => String(x).trim()).filter(Boolean);
@@ -59,25 +71,66 @@ function mapRemoteToJobPatch(fileUrl, payload, fallbackQueueStatus = "processing
   };
 }
 
+async function cleanupUploadedFile(filePath) {
+  const normalized = String(filePath || "").trim();
+  if (!normalized) return;
+  try {
+    await fs.promises.unlink(normalized);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      // eslint-disable-next-line no-console
+      console.warn("Failed to cleanup uploaded file:", normalized, error.message);
+    }
+  }
+}
+
+async function cleanupUploadedFiles(files) {
+  const allFiles = Array.isArray(files) ? files : [];
+  await Promise.all(
+    allFiles.map((file) => cleanupUploadedFile(file?.path || file?.file_path || ""))
+  );
+}
+
+function normalizeUploadedFiles(files) {
+  return files.map((file) => ({
+    file_name: file.originalname || file.filename,
+    file_path: file.path,
+    file_mime: file.mimetype || "",
+    file_size: file.size || 0,
+  }));
+}
+
 async function startQueueItem(item, setting) {
   try {
-    const remote = await submitExtractJob(item.file_url, setting);
+    const isFileInput = String(item.input_type || "url") === "file";
+    const remote = isFileInput
+      ? await submitExtractJobWithFile(item, setting)
+      : await submitExtractJob(item.file_url, setting);
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
-    return updateJobById(item._id, {
+    const saved = await updateJobById(item._id, {
       ...patch,
       queue_status: "processing",
       started_at: new Date(),
       finished_at: null,
       queue_order: null,
+      file_path: isFileInput ? "" : item.file_path || "",
     });
+    if (isFileInput) {
+      await cleanupUploadedFile(item.file_path);
+    }
+    return saved;
   } catch (error) {
-    return updateJobById(item._id, {
+    const saved = await updateJobById(item._id, {
       status: "failed",
       queue_status: "failed",
       stage: "extract_failed",
       error: error.response?.data ? JSON.stringify(error.response.data) : error.message,
       finished_at: new Date(),
     });
+    if (String(item.input_type || "url") === "file") {
+      await cleanupUploadedFile(item.file_path);
+    }
+    return saved;
   }
 }
 
@@ -169,6 +222,40 @@ router.post("/queue", async (req, res, next) => {
     const trigger = await startNextQueuedJob();
     res.json({ data: created, trigger });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/queue/files", upload.array("file"), async (req, res, next) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ message: "file is required as a non-empty upload field." });
+    }
+
+    const payload = normalizeUploadedFiles(files);
+
+    const created = await createQueuedJobsFromFiles(payload);
+    const trigger = await startNextQueuedJob();
+    return res.json({ data: created, trigger });
+  } catch (error) {
+    await cleanupUploadedFiles(req.files);
+    next(error);
+  }
+});
+
+router.post("/ingest/files", upload.array("file"), async (req, res, next) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ message: "file is required as a non-empty upload field." });
+    }
+    const payload = normalizeUploadedFiles(files);
+    const created = await createQueuedJobsFromFiles(payload);
+    const trigger = await startNextQueuedJob();
+    return res.json({ data: created, trigger });
+  } catch (error) {
+    await cleanupUploadedFiles(req.files);
     next(error);
   }
 });

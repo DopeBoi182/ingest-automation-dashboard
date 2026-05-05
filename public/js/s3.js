@@ -54,7 +54,7 @@ async function fetchFiles({ append }) {
     query.continuationToken = state.nextContinuationToken;
   }
 
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/s3/files/urls", query);
+  const response = await $.getJSON("./api/s3/files/urls", query);
   const payload = response.data || {};
 
   if (!append) {
@@ -87,7 +87,7 @@ async function ingestKeys(keys) {
 
   const filters = getFilters();
   const response = await $.ajax({
-    url: "/plhlmsdev/service-ingest/api/s3/ingest",
+    url: "./api/s3/ingest",
     method: "POST",
     contentType: "application/json",
     data: JSON.stringify({
@@ -102,7 +102,7 @@ async function ingestKeys(keys) {
 }
 
 async function checkHealth() {
-  const response = await $.getJSON("/plhlmsdev/service-ingest/api/s3/health");
+  const response = await $.getJSON("./api/s3/health");
   const data = response.data || {};
   showStatus(`S3 OK. Bucket: ${data.bucket || "-"}, Endpoint: ${data.endpoint || "-"}`);
 }

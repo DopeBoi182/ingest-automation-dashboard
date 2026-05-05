@@ -12,6 +12,21 @@ const {
 
 const router = express.Router();
 
+function logS3Info(action, meta = {}) {
+  // eslint-disable-next-line no-console
+  console.log(`[S3][routes] ${action}`, meta);
+}
+
+function logS3Error(action, error, meta = {}) {
+  // eslint-disable-next-line no-console
+  console.error(`[S3][routes] ${action} failed`, {
+    ...meta,
+    message: error?.message,
+    status: error?.response?.status || error?.status,
+    detail: error?.response?.data,
+  });
+}
+
 function toNumber(value, defaultValue) {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? defaultValue : parsed;
@@ -58,17 +73,31 @@ function mapRemoteToJobPatch(fileUrl, payload, fallbackQueueStatus = "processing
 }
 
 async function startQueueItem(item, setting) {
+  logS3Info("startQueueItem.begin", {
+    queueId: String(item?._id || ""),
+    fileUrl: item?.file_url || "",
+  });
   try {
     const remote = await submitExtractJob(item.file_url, setting);
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
-    return updateJobById(item._id, {
+    const updated = await updateJobById(item._id, {
       ...patch,
       queue_status: "processing",
       started_at: new Date(),
       finished_at: null,
       queue_order: null,
     });
+    logS3Info("startQueueItem.success", {
+      queueId: String(item?._id || ""),
+      jobId: updated?.job_id || "",
+      status: updated?.status || "",
+    });
+    return updated;
   } catch (error) {
+    logS3Error("startQueueItem", error, {
+      queueId: String(item?._id || ""),
+      fileUrl: item?.file_url || "",
+    });
     return updateJobById(item._id, {
       status: "failed",
       queue_status: "failed",
@@ -81,21 +110,42 @@ async function startQueueItem(item, setting) {
 
 async function startNextQueuedJob() {
   const active = await getActiveProcessingJob();
-  if (active) return { started: false, reason: "already_processing", active };
+  if (active) {
+    logS3Info("startNextQueuedJob.skip", {
+      reason: "already_processing",
+      activeJobId: active.job_id || "",
+    });
+    return { started: false, reason: "already_processing", active };
+  }
 
   const setting = await getOrCreateGlobalSetting();
   while (true) {
     const nextJob = await getNextQueuedJob();
-    if (!nextJob) return { started: false, reason: "queue_empty" };
+    if (!nextJob) {
+      logS3Info("startNextQueuedJob.skip", { reason: "queue_empty" });
+      return { started: false, reason: "queue_empty" };
+    }
 
     const startedJob = await startQueueItem(nextJob, setting);
-    if (startedJob.queue_status === "processing") return { started: true, job: startedJob };
+    if (startedJob.queue_status === "processing") {
+      logS3Info("startNextQueuedJob.success", {
+        queueId: String(nextJob?._id || ""),
+        jobId: startedJob?.job_id || "",
+      });
+      return { started: true, job: startedJob };
+    }
   }
 }
 
 router.get("/health", (_req, res) => {
   try {
+    logS3Info("GET /health.begin");
     validateS3Config();
+    logS3Info("GET /health.success", {
+      provider: env.s3Provider,
+      bucket: env.s3Bucket,
+      endpoint: env.s3ServiceUrl,
+    });
     res.json({
       data: {
         ok: true,
@@ -105,6 +155,7 @@ router.get("/health", (_req, res) => {
       },
     });
   } catch (error) {
+    logS3Error("GET /health", error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -118,8 +169,16 @@ router.get("/files/urls", async (req, res, next) => {
     const continuationToken = req.query.continuationToken
       ? String(req.query.continuationToken)
       : undefined;
+    logS3Info("GET /files/urls.begin", {
+      prefix,
+      maxKeys,
+      mode,
+      ttlSeconds,
+      hasContinuationToken: Boolean(continuationToken),
+    });
 
     if (!["presigned", "public"].includes(mode)) {
+      logS3Info("GET /files/urls.invalid_mode", { mode });
       return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
     }
 
@@ -131,6 +190,14 @@ router.get("/files/urls", async (req, res, next) => {
         url: await buildUrlForKey({ key, mode, ttlSeconds }),
       }))
     );
+    logS3Info("GET /files/urls.success", {
+      prefix,
+      requestedMaxKeys: maxKeys,
+      listedCount: listed.keys.length,
+      fileCount: files.length,
+      isTruncated: listed.isTruncated,
+      hasNextContinuationToken: Boolean(listed.nextContinuationToken),
+    });
 
     return res.json({
       data: {
@@ -144,6 +211,10 @@ router.get("/files/urls", async (req, res, next) => {
       },
     });
   } catch (error) {
+    logS3Error("GET /files/urls", error, {
+      prefix: String(req.query.prefix || ""),
+      mode: String(req.query.mode || "presigned").toLowerCase(),
+    });
     next(error);
   }
 });
@@ -155,11 +226,18 @@ router.post("/ingest", async (req, res, next) => {
       : [];
     const mode = String(req.body?.mode || "presigned").toLowerCase();
     const ttlSeconds = toNumber(req.body?.ttlSeconds, env.s3PresignTtlSeconds);
+    logS3Info("POST /ingest.begin", {
+      keyCount: keys.length,
+      mode,
+      ttlSeconds,
+    });
 
     if (!keys.length) {
+      logS3Info("POST /ingest.invalid_keys");
       return res.status(400).json({ message: "keys is required as a non-empty array." });
     }
     if (!["presigned", "public"].includes(mode)) {
+      logS3Info("POST /ingest.invalid_mode", { mode });
       return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
     }
 
@@ -167,6 +245,14 @@ router.post("/ingest", async (req, res, next) => {
 
     const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
+    logS3Info("POST /ingest.success", {
+      mode,
+      ttlSeconds,
+      keyCount: keys.length,
+      queuedCount: created.length,
+      triggerStarted: Boolean(trigger?.started),
+      triggerReason: trigger?.reason || "",
+    });
 
     return res.json({
       data: {
@@ -180,6 +266,10 @@ router.post("/ingest", async (req, res, next) => {
       },
     });
   } catch (error) {
+    logS3Error("POST /ingest", error, {
+      keyCount: Array.isArray(req.body?.keys) ? req.body.keys.length : 0,
+      mode: String(req.body?.mode || "presigned").toLowerCase(),
+    });
     next(error);
   }
 });

@@ -31,6 +31,21 @@ const uploadDir = env.uploadDir;
 fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({ dest: uploadDir });
 
+function logJobsInfo(action, meta = {}) {
+  // eslint-disable-next-line no-console
+  console.log(`[JobsFlow] ${action}`, meta);
+}
+
+function logJobsError(action, error, meta = {}) {
+  // eslint-disable-next-line no-console
+  console.error(`[JobsFlow] ${action} failed`, {
+    ...meta,
+    message: error?.message,
+    status: error?.response?.status || error?.status,
+    detail: error?.response?.data,
+  });
+}
+
 function parseUrlInput(urls) {
   if (Array.isArray(urls)) return urls.map((x) => String(x).trim()).filter(Boolean);
   return String(urls || "")
@@ -76,10 +91,10 @@ async function cleanupUploadedFile(filePath) {
   if (!normalized) return;
   try {
     await fs.promises.unlink(normalized);
+    logJobsInfo("cleanupUploadedFile.success", { filePath: normalized });
   } catch (error) {
     if (error.code !== "ENOENT") {
-      // eslint-disable-next-line no-console
-      console.warn("Failed to cleanup uploaded file:", normalized, error.message);
+      logJobsError("cleanupUploadedFile", error, { filePath: normalized });
     }
   }
 }
@@ -101,8 +116,13 @@ function normalizeUploadedFiles(files) {
 }
 
 async function startQueueItem(item, setting) {
+  const isFileInput = String(item.input_type || "url") === "file";
+  logJobsInfo("startQueueItem.begin", {
+    queueId: String(item?._id || ""),
+    inputType: isFileInput ? "file" : "url",
+    source: isFileInput ? item?.file_name || "" : item?.file_url || "",
+  });
   try {
-    const isFileInput = String(item.input_type || "url") === "file";
     const remote = isFileInput
       ? await submitExtractJobWithFile(item, setting)
       : await submitExtractJob(item.file_url, setting);
@@ -118,8 +138,20 @@ async function startQueueItem(item, setting) {
     if (isFileInput) {
       await cleanupUploadedFile(item.file_path);
     }
+    logJobsInfo("startQueueItem.success", {
+      queueId: String(item?._id || ""),
+      inputType: isFileInput ? "file" : "url",
+      jobId: saved?.job_id || "",
+      queueStatus: saved?.queue_status || "",
+      remoteStatus: saved?.status || "",
+    });
     return saved;
   } catch (error) {
+    logJobsError("startQueueItem", error, {
+      queueId: String(item?._id || ""),
+      inputType: isFileInput ? "file" : "url",
+      source: isFileInput ? item?.file_name || "" : item?.file_url || "",
+    });
     const saved = await updateJobById(item._id, {
       status: "failed",
       queue_status: "failed",
@@ -135,8 +167,16 @@ async function startQueueItem(item, setting) {
 }
 
 async function startNextQueuedJob({ forcedQueueId = null } = {}) {
+  logJobsInfo("startNextQueuedJob.begin", { forcedQueueId: forcedQueueId || "" });
   const active = await getActiveProcessingJob();
-  if (active) return { started: false, reason: "already_processing", active };
+  if (active) {
+    logJobsInfo("startNextQueuedJob.skip", {
+      reason: "already_processing",
+      activeJobId: active.job_id || "",
+      activeQueueId: String(active._id || ""),
+    });
+    return { started: false, reason: "already_processing", active };
+  }
 
   const setting = await getOrCreateGlobalSetting();
   let forcedUsed = false;
@@ -148,16 +188,35 @@ async function startNextQueuedJob({ forcedQueueId = null } = {}) {
       forcedUsed = true;
     }
     if (!nextJob) nextJob = await getNextQueuedJob();
-    if (!nextJob) return { started: false, reason: "queue_empty" };
+    if (!nextJob) {
+      logJobsInfo("startNextQueuedJob.skip", { reason: "queue_empty" });
+      return { started: false, reason: "queue_empty" };
+    }
 
     const startedJob = await startQueueItem(nextJob, setting);
-    if (startedJob.queue_status === "processing") return { started: true, job: startedJob };
-    if (forcedQueueId && forcedUsed) return { started: false, reason: "forced_start_failed", job: startedJob };
+    if (startedJob.queue_status === "processing") {
+      logJobsInfo("startNextQueuedJob.success", {
+        queueId: String(nextJob?._id || ""),
+        jobId: startedJob?.job_id || "",
+      });
+      return { started: true, job: startedJob };
+    }
+    if (forcedQueueId && forcedUsed) {
+      logJobsInfo("startNextQueuedJob.skip", {
+        reason: "forced_start_failed",
+        queueId: String(nextJob?._id || ""),
+      });
+      return { started: false, reason: "forced_start_failed", job: startedJob };
+    }
   }
 }
 
 async function refreshActiveProcessingJob() {
   const active = await getActiveProcessingJob();
+  logJobsInfo("refreshActiveProcessingJob.begin", {
+    hasActive: Boolean(active),
+    activeJobId: active?.job_id || "",
+  });
   if (!active) return { active: null, updated: false, nextStarted: false };
   if (!active.job_id) {
     const marked = await updateJobById(active._id, {
@@ -183,10 +242,26 @@ async function refreshActiveProcessingJob() {
       queue_order: null,
     });
 
-    if (!isTerminal) return { active: saved, updated: true, nextStarted: false };
+    if (!isTerminal) {
+      logJobsInfo("refreshActiveProcessingJob.success", {
+        activeJobId: active.job_id,
+        remoteStatus: remote?.status || "",
+        terminal: false,
+      });
+      return { active: saved, updated: true, nextStarted: false };
+    }
     const next = await startNextQueuedJob();
+    logJobsInfo("refreshActiveProcessingJob.success", {
+      activeJobId: active.job_id,
+      remoteStatus: remote?.status || "",
+      terminal: true,
+      nextStarted: Boolean(next.started),
+    });
     return { active: saved, updated: true, nextStarted: Boolean(next.started), next };
   } catch (error) {
+    logJobsError("refreshActiveProcessingJob", error, {
+      activeJobId: active?.job_id || "",
+    });
     return {
       active,
       updated: false,
@@ -214,14 +289,21 @@ async function refreshJobById(job) {
 router.post("/queue", async (req, res, next) => {
   try {
     const urls = parseUrlInput(req.body?.urls);
+    logJobsInfo("POST /queue.begin", { urlCount: urls.length });
     if (!urls.length) {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
     const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
+    logJobsInfo("POST /queue.success", {
+      queuedCount: created.length,
+      triggerStarted: Boolean(trigger?.started),
+      triggerReason: trigger?.reason || "",
+    });
     res.json({ data: created, trigger });
   } catch (error) {
+    logJobsError("POST /queue", error);
     next(error);
   }
 });
@@ -229,6 +311,11 @@ router.post("/queue", async (req, res, next) => {
 router.post("/queue/files", upload.array("file"), async (req, res, next) => {
   try {
     const files = Array.isArray(req.files) ? req.files : [];
+    logJobsInfo("POST /queue/files.begin", {
+      fileCount: files.length,
+      fileNames: files.map((file) => file.originalname || file.filename),
+      uploadDir,
+    });
     if (!files.length) {
       return res.status(400).json({ message: "file is required as a non-empty upload field." });
     }
@@ -237,8 +324,17 @@ router.post("/queue/files", upload.array("file"), async (req, res, next) => {
 
     const created = await createQueuedJobsFromFiles(payload);
     const trigger = await startNextQueuedJob();
+    logJobsInfo("POST /queue/files.success", {
+      queuedCount: created.length,
+      triggerStarted: Boolean(trigger?.started),
+      triggerReason: trigger?.reason || "",
+    });
     return res.json({ data: created, trigger });
   } catch (error) {
+    logJobsError("POST /queue/files", error, {
+      fileCount: Array.isArray(req.files) ? req.files.length : 0,
+      uploadDir,
+    });
     await cleanupUploadedFiles(req.files);
     next(error);
   }
@@ -247,14 +343,28 @@ router.post("/queue/files", upload.array("file"), async (req, res, next) => {
 router.post("/ingest/files", upload.array("file"), async (req, res, next) => {
   try {
     const files = Array.isArray(req.files) ? req.files : [];
+    logJobsInfo("POST /ingest/files.begin", {
+      fileCount: files.length,
+      fileNames: files.map((file) => file.originalname || file.filename),
+      uploadDir,
+    });
     if (!files.length) {
       return res.status(400).json({ message: "file is required as a non-empty upload field." });
     }
     const payload = normalizeUploadedFiles(files);
     const created = await createQueuedJobsFromFiles(payload);
     const trigger = await startNextQueuedJob();
+    logJobsInfo("POST /ingest/files.success", {
+      queuedCount: created.length,
+      triggerStarted: Boolean(trigger?.started),
+      triggerReason: trigger?.reason || "",
+    });
     return res.json({ data: created, trigger });
   } catch (error) {
+    logJobsError("POST /ingest/files", error, {
+      fileCount: Array.isArray(req.files) ? req.files.length : 0,
+      uploadDir,
+    });
     await cleanupUploadedFiles(req.files);
     next(error);
   }
@@ -263,14 +373,21 @@ router.post("/ingest/files", upload.array("file"), async (req, res, next) => {
 router.post("/ingest", async (req, res, next) => {
   try {
     const urls = parseUrlInput(req.body?.urls);
+    logJobsInfo("POST /ingest.begin", { urlCount: urls.length });
     if (!urls.length) {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
     const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
+    logJobsInfo("POST /ingest.success", {
+      queuedCount: created.length,
+      triggerStarted: Boolean(trigger?.started),
+      triggerReason: trigger?.reason || "",
+    });
     res.json({ data: created, trigger });
   } catch (error) {
+    logJobsError("POST /ingest", error);
     next(error);
   }
 });

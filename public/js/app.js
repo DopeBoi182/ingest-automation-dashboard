@@ -4,6 +4,19 @@ function showStatus(message) {
 
 let tickInFlight = false;
 
+function logFeInfo(action, meta = {}) {
+  console.log(`[IngestFE] ${action}`, meta);
+}
+
+function logFeError(action, error, meta = {}) {
+  console.error(`[IngestFE] ${action} failed`, {
+    ...meta,
+    message: error?.message,
+    status: error?.status || error?.responseJSON?.status,
+    detail: error?.responseJSON?.detail || error?.responseJSON?.message,
+  });
+}
+
 function toLocalDateString(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -70,6 +83,7 @@ function finishedRowTemplate(job) {
 }
 
 async function loadSettings() {
+  logFeInfo("loadSettings.begin");
   const response = await $.getJSON("./api/settings");
   const s = response.data || {};
   $("#knowledgeSource").val(s.knowledge_source || "");
@@ -82,28 +96,39 @@ async function loadSettings() {
   $("#chunkOverlap").val(s.chunk_overlap || 200);
   $("#forceFlag").val(String(s.force ?? true));
   $("#promptText").val(s.prompt || "");
+  logFeInfo("loadSettings.success", {
+    provider: s.provider || "",
+    knowledgeSource: s.knowledge_source || "",
+  });
 }
 
 async function loadProcess() {
+  logFeInfo("loadProcess.begin");
   const response = await $.getJSON("./api/jobs/process");
   const job = response.data;
   if (!job) {
+    logFeInfo("loadProcess.empty");
     $("#processBody").html(`<tr><td colspan="7">No active processing item.</td></tr>`);
     return;
   }
   $("#processBody").html(processRowTemplate(job));
+  logFeInfo("loadProcess.success", { jobId: job.job_id || "", status: job.status || "" });
 }
 
 async function loadQueue() {
+  logFeInfo("loadQueue.begin");
   const response = await $.getJSON("./api/jobs/queue");
   const rows = (response.data || []).map(queueRowTemplate).join("");
   $("#queueBody").html(rows || `<tr><td colspan="4">Queue is empty.</td></tr>`);
+  logFeInfo("loadQueue.success", { queueCount: (response.data || []).length });
 }
 
 async function loadFinished() {
+  logFeInfo("loadFinished.begin");
   const response = await $.getJSON("./api/jobs/finished");
   const rows = (response.data || []).map(finishedRowTemplate).join("");
   $("#finishedBody").html(rows || `<tr><td colspan="7">No completed or failed jobs yet.</td></tr>`);
+  logFeInfo("loadFinished.success", { finishedCount: (response.data || []).length });
 }
 
 async function loadQueueViews() {
@@ -125,6 +150,10 @@ async function saveSettings(event) {
     prompt: $("#promptText").val(),
   };
 
+  logFeInfo("saveSettings.begin", {
+    provider: payload.provider || "",
+    knowledgeSource: payload.knowledge_source || "",
+  });
   await $.ajax({
     url: "./api/settings",
     method: "PUT",
@@ -132,6 +161,7 @@ async function saveSettings(event) {
     data: JSON.stringify(payload),
   });
   showStatus("Settings saved.");
+  logFeInfo("saveSettings.success");
 }
 
 async function ingestUrls(event) {
@@ -144,6 +174,7 @@ async function ingestUrls(event) {
 
   $("#submitIngestBtn").prop("disabled", true);
   showStatus("Adding URLs to queue and auto-starting first item...");
+  logFeInfo("ingestUrls.begin", { urlCount: parseUrlInputCount(urls) });
 
   try {
     await $.ajax({
@@ -155,6 +186,7 @@ async function ingestUrls(event) {
     $("#urlInput").val("");
     await loadQueueViews();
     showStatus("URLs queued. First item auto-started if processor was idle.");
+    logFeInfo("ingestUrls.success");
   } finally {
     $("#submitIngestBtn").prop("disabled", false);
   }
@@ -164,18 +196,21 @@ async function executeOne() {
   $("#executeOneBtn").prop("disabled", true);
   showStatus("Executing next queue item...");
   try {
+    logFeInfo("executeOne.begin");
     await $.ajax({
       url: "./api/jobs/process/trigger",
       method: "POST",
     });
     await loadQueueViews();
     showStatus("Execute one done.");
+    logFeInfo("executeOne.success");
   } finally {
     $("#executeOneBtn").prop("disabled", false);
   }
 }
 
 async function refreshOne(jobId) {
+  logFeInfo("refreshOne.begin", { jobId });
   showStatus(`Refreshing ${jobId} ...`);
   await $.ajax({
     url: `./api/jobs/${encodeURIComponent(jobId)}/refresh`,
@@ -183,24 +218,28 @@ async function refreshOne(jobId) {
   });
   await loadQueueViews();
   showStatus(`Refreshed ${jobId}.`);
+  logFeInfo("refreshOne.success", { jobId });
 }
 
 async function refreshAllState() {
   $("#refreshAllBtn").prop("disabled", true);
   showStatus("Refreshing all states...");
   try {
+    logFeInfo("refreshAllState.begin");
     await $.ajax({
       url: "./api/jobs/refresh-all",
       method: "POST",
     });
     await loadQueueViews();
     showStatus("Refresh all state completed.");
+    logFeInfo("refreshAllState.success");
   } finally {
     $("#refreshAllBtn").prop("disabled", false);
   }
 }
 
 async function forceReplace(queueId) {
+  logFeInfo("forceReplace.begin", { queueId });
   showStatus("Force replacing current process...");
   await $.ajax({
     url: `./api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
@@ -208,9 +247,11 @@ async function forceReplace(queueId) {
   });
   await loadQueueViews();
   showStatus("Force add queue to process completed.");
+  logFeInfo("forceReplace.success", { queueId });
 }
 
 async function deleteQueueItem(queueId) {
+  logFeInfo("deleteQueueItem.begin", { queueId });
   showStatus("Deleting queued item...");
   await $.ajax({
     url: `./api/jobs/queue/${encodeURIComponent(queueId)}`,
@@ -218,9 +259,11 @@ async function deleteQueueItem(queueId) {
   });
   await loadQueueViews();
   showStatus("Queued item deleted.");
+  logFeInfo("deleteQueueItem.success", { queueId });
 }
 
 async function clearQueue() {
+  logFeInfo("clearQueue.begin");
   showStatus("Clearing queued items...");
   const response = await $.ajax({
     url: "./api/jobs/queue",
@@ -229,6 +272,14 @@ async function clearQueue() {
   await loadQueueViews();
   const deletedCount = response.data?.deletedCount ?? 0;
   showStatus(`Cleared ${deletedCount} queued item(s).`);
+  logFeInfo("clearQueue.success", { deletedCount });
+}
+
+function parseUrlInputCount(urls) {
+  return String(urls || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean).length;
 }
 
 function updateSelectedFilesText() {
@@ -253,6 +304,10 @@ async function ingestFiles(event) {
 
   const formData = new FormData();
   files.forEach((file) => formData.append("file", file));
+  logFeInfo("ingestFiles.begin", {
+    fileCount: files.length,
+    fileNames: files.map((file) => file.name),
+  });
 
   $("#submitFilesBtn").prop("disabled", true);
   showStatus("Uploading file(s) to queue and auto-starting first item...");
@@ -268,6 +323,7 @@ async function ingestFiles(event) {
     updateSelectedFilesText();
     await loadQueueViews();
     showStatus("Files queued. First item auto-started if processor was idle.");
+    logFeInfo("ingestFiles.success", { fileCount: files.length });
   } finally {
     $("#submitFilesBtn").prop("disabled", false);
   }
@@ -277,12 +333,14 @@ async function runTick() {
   if (tickInFlight) return;
   tickInFlight = true;
   try {
+    logFeInfo("runTick.begin");
     await $.ajax({
       url: "./api/jobs/process/tick",
       method: "POST",
     });
     await loadQueueViews();
     showStatus("Auto refresh done.");
+    logFeInfo("runTick.success");
   } finally {
     tickInFlight = false;
   }
@@ -332,6 +390,7 @@ async function askQna(event) {
   event.preventDefault();
   const question = $("#questionInput").val().trim();
   if (!question) return;
+  logFeInfo("askQna.begin", { questionLength: question.length });
   showStatus("Sending question...");
   const response = await $.ajax({
     url: "./api/qna",
@@ -341,9 +400,30 @@ async function askQna(event) {
   });
   $("#qnaResponse").text(JSON.stringify(response.data, null, 2));
   showStatus("QnA complete.");
+  logFeInfo("askQna.success");
 }
 
 $(document).ready(async () => {
+  $(document).ajaxSend((_event, jqxhr, settings) => {
+    logFeInfo("ajax.send", { method: settings.type || "GET", url: settings.url || "" });
+  });
+
+  $(document).ajaxSuccess((_event, jqxhr, settings) => {
+    logFeInfo("ajax.success", {
+      method: settings.type || "GET",
+      url: settings.url || "",
+      status: jqxhr.status,
+    });
+  });
+
+  $(document).ajaxError((_event, jqxhr, settings, thrownError) => {
+    logFeError("ajax.error", { message: thrownError, status: jqxhr.status }, {
+      method: settings.type || "GET",
+      url: settings.url || "",
+      status: jqxhr.status,
+    });
+  });
+
   await bootstrap();
   setupTabs();
   setupAutoTick();

@@ -377,6 +377,49 @@ function extractError(error) {
   return error.responseJSON?.message || error.message;
 }
 
+function renderHealthcheckerResult(payload) {
+  const summary = payload?.summary || {};
+  const checks = Array.isArray(payload?.checks) ? payload.checks : [];
+  const lines = [];
+  lines.push(`Base URL: ${payload?.baseUrl || "-"}`);
+  lines.push(`Summary: ${summary.passed ?? 0}/${summary.total ?? checks.length} passed`);
+  lines.push("");
+  checks.forEach((item) => {
+    const mark = item.ok ? "[OK]" : "[FAIL]";
+    const statusCode = item.statusCode ?? "-";
+    const latencyMs = item.latencyMs ?? "-";
+    const error = item.error ? ` | error=${item.error}` : "";
+    lines.push(`${mark} ${item.path} | status=${statusCode} | latencyMs=${latencyMs}${error}`);
+  });
+  return lines.join("\n");
+}
+
+async function runHealthchecker() {
+  $("#healthcheckerBtn").prop("disabled", true);
+  $("#healthcheckerOutput").text("Checking health endpoints...");
+  showStatus("Running healthchecker...");
+  logFeInfo("healthchecker.begin");
+  try {
+    const response = await $.getJSON("./api/healthchecker");
+    const data = response.data || {};
+    $("#healthcheckerOutput").text(renderHealthcheckerResult(data));
+    const summary = data.summary || {};
+    showStatus(`Healthchecker done: ${summary.passed ?? 0}/${summary.total ?? 0} passed.`);
+    logFeInfo("healthchecker.success", {
+      total: summary.total ?? 0,
+      passed: summary.passed ?? 0,
+      failed: summary.failed ?? 0,
+    });
+  } catch (error) {
+    const msg = extractError(error);
+    $("#healthcheckerOutput").text(`Healthchecker failed.\n${msg}`);
+    showStatus(`Healthchecker failed: ${msg}`);
+    logFeError("healthchecker", error);
+  } finally {
+    $("#healthcheckerBtn").prop("disabled", false);
+  }
+}
+
 async function bootstrap() {
   try {
     await loadSettings();
@@ -513,5 +556,9 @@ $(document).ready(async () => {
     } catch (error) {
       showStatus(`QnA failed: ${extractError(error)}`);
     }
+  });
+
+  $("#healthcheckerBtn").on("click", async () => {
+    await runHealthchecker();
   });
 });

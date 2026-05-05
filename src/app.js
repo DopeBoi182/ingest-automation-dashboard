@@ -5,6 +5,7 @@ const jobsRouter = require("./routes/jobs");
 const settingsRouter = require("./routes/settings");
 const qnaRouter = require("./routes/qna");
 const s3Router = require("./routes/s3");
+const healthcheckerRouter = require("./routes/healthchecker");
 
 const app = express();
 const publicDir = path.join(__dirname, "..", "public");
@@ -31,6 +32,7 @@ apiRouter.use("/api/jobs", jobsRouter);
 apiRouter.use("/api/settings", settingsRouter);
 apiRouter.use("/api/qna", qnaRouter);
 apiRouter.use("/api/s3", s3Router);
+apiRouter.use("/api/healthchecker", healthcheckerRouter);
 app.use(apiRouter);
 if (env.appBasePath) {
   app.use(env.appBasePath, apiRouter);

@@ -63,7 +63,7 @@ function finishedRowTemplate(job) {
 }
 
 async function loadSettings() {
-  const response = await $.getJSON("/api/settings");
+  const response = await $.getJSON("/plhlmsdev/service-ingest/api/settings");
   const s = response.data || {};
   $("#knowledgeSource").val(s.knowledge_source || "");
   $("#knowledgeTags").val((s.knowledge_tags || []).join(","));
@@ -78,7 +78,7 @@ async function loadSettings() {
 }
 
 async function loadProcess() {
-  const response = await $.getJSON("/api/jobs/process");
+  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/process");
   const job = response.data;
   if (!job) {
     $("#processBody").html(`<tr><td colspan="7">No active processing item.</td></tr>`);
@@ -88,13 +88,13 @@ async function loadProcess() {
 }
 
 async function loadQueue() {
-  const response = await $.getJSON("/api/jobs/queue");
+  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/queue");
   const rows = (response.data || []).map(queueRowTemplate).join("");
   $("#queueBody").html(rows || `<tr><td colspan="4">Queue is empty.</td></tr>`);
 }
 
 async function loadFinished() {
-  const response = await $.getJSON("/api/jobs/finished");
+  const response = await $.getJSON("/plhlmsdev/service-ingest/api/jobs/finished");
   const rows = (response.data || []).map(finishedRowTemplate).join("");
   $("#finishedBody").html(rows || `<tr><td colspan="7">No completed or failed jobs yet.</td></tr>`);
 }
@@ -119,7 +119,7 @@ async function saveSettings(event) {
   };
 
   await $.ajax({
-    url: "/api/settings",
+    url: "/plhlmsdev/service-ingest/api/settings",
     method: "PUT",
     contentType: "application/json",
     data: JSON.stringify(payload),
@@ -140,7 +140,7 @@ async function ingestUrls(event) {
 
   try {
     await $.ajax({
-      url: "/api/jobs/queue",
+      url: "/plhlmsdev/service-ingest/api/jobs/queue",
       method: "POST",
       contentType: "application/json",
       data: JSON.stringify({ urls }),
@@ -158,7 +158,7 @@ async function executeOne() {
   showStatus("Executing next queue item...");
   try {
     await $.ajax({
-      url: "/api/jobs/process/trigger",
+      url: "/plhlmsdev/service-ingest/api/jobs/process/trigger",
       method: "POST",
     });
     await loadQueueViews();
@@ -171,7 +171,7 @@ async function executeOne() {
 async function refreshOne(jobId) {
   showStatus(`Refreshing ${jobId} ...`);
   await $.ajax({
-    url: `/api/jobs/${encodeURIComponent(jobId)}/refresh`,
+    url: `/plhlmsdev/service-ingest/api/jobs/${encodeURIComponent(jobId)}/refresh`,
     method: "POST",
   });
   await loadQueueViews();
@@ -183,7 +183,7 @@ async function refreshAllState() {
   showStatus("Refreshing all states...");
   try {
     await $.ajax({
-      url: "/api/jobs/refresh-all",
+      url: "/plhlmsdev/service-ingest/api/jobs/refresh-all",
       method: "POST",
     });
     await loadQueueViews();
@@ -196,7 +196,7 @@ async function refreshAllState() {
 async function forceReplace(queueId) {
   showStatus("Force replacing current process...");
   await $.ajax({
-    url: `/api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
+    url: `/plhlmsdev/service-ingest/api/jobs/queue/${encodeURIComponent(queueId)}/force-replace`,
     method: "POST",
   });
   await loadQueueViews();
@@ -206,7 +206,7 @@ async function forceReplace(queueId) {
 async function deleteQueueItem(queueId) {
   showStatus("Deleting queued item...");
   await $.ajax({
-    url: `/api/jobs/queue/${encodeURIComponent(queueId)}`,
+    url: `/plhlmsdev/service-ingest/api/jobs/queue/${encodeURIComponent(queueId)}`,
     method: "DELETE",
   });
   await loadQueueViews();
@@ -216,7 +216,7 @@ async function deleteQueueItem(queueId) {
 async function clearQueue() {
   showStatus("Clearing queued items...");
   const response = await $.ajax({
-    url: "/api/jobs/queue",
+    url: "/plhlmsdev/service-ingest/api/jobs/queue",
     method: "DELETE",
   });
   await loadQueueViews();
@@ -229,7 +229,7 @@ async function runTick() {
   tickInFlight = true;
   try {
     await $.ajax({
-      url: "/api/jobs/process/tick",
+      url: "/plhlmsdev/service-ingest/api/jobs/process/tick",
       method: "POST",
     });
     await loadQueueViews();
@@ -285,7 +285,7 @@ async function askQna(event) {
   if (!question) return;
   showStatus("Sending question...");
   const response = await $.ajax({
-    url: "/api/qna",
+    url: "/plhlmsdev/service-ingest/api/qna",
     method: "POST",
     contentType: "application/json",
     data: JSON.stringify({ question }),

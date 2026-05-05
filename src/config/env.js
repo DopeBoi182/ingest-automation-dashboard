@@ -22,8 +22,7 @@ function normalizeHostToServiceUrl(host, useHttps) {
 
 const env = {
   port: toNumber(process.env.PORT, 9001),
-  mongoUri:
-    process.env.MONGO_URI || "mongodb://127.0.0.1:27017/automation_ai_ingestion",
+  dataFile: process.env.DATA_FILE || "data/storage.json",
   externalBaseUrl: process.env.EXTERNAL_BASE_URL || "http://16.79.175.142:806",
   extractEndpoint: process.env.EXTRACT_ENDPOINT || "/api/v1/jobs/extract",
   statusEndpointPrefix: process.env.STATUS_ENDPOINT_PREFIX || "/api/v1/jobs",

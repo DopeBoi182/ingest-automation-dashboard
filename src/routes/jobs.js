@@ -1,7 +1,20 @@
 const express = require("express");
-const Job = require("../models/Job");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
 const { submitExtractJob, getJobStatus, cancelJob } = require("../services/ingestorClient");
+const {
+  getAllJobs,
+  getQueuedJobs,
+  getFinishedJobs,
+  getJobsWithRemoteId,
+  getByJobId,
+  getQueuedById,
+  getActiveProcessingJob,
+  getNextQueuedJob,
+  createQueuedJobsFromUrls,
+  updateJobById,
+  deleteQueuedById,
+  clearQueuedJobs,
+} = require("../storage/jobRepository");
 
 const router = express.Router();
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled", "cancelled", "error"]);
@@ -46,45 +59,25 @@ function mapRemoteToJobPatch(fileUrl, payload, fallbackQueueStatus = "processing
   };
 }
 
-async function getActiveProcessingJob() {
-  return Job.findOne({ queue_status: "processing" }).sort({ started_at: 1, createdAt: 1 });
-}
-
-async function getNextQueuedJob() {
-  return Job.findOne({ queue_status: "queued" }).sort({ queue_order: 1, createdAt: 1 });
-}
-
 async function startQueueItem(item, setting) {
   try {
     const remote = await submitExtractJob(item.file_url, setting);
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
-    return Job.findByIdAndUpdate(
-      item._id,
-      {
-        $set: {
-          ...patch,
-          queue_status: "processing",
-          started_at: new Date(),
-          finished_at: null,
-          queue_order: null,
-        },
-      },
-      { new: true }
-    );
+    return updateJobById(item._id, {
+      ...patch,
+      queue_status: "processing",
+      started_at: new Date(),
+      finished_at: null,
+      queue_order: null,
+    });
   } catch (error) {
-    return Job.findByIdAndUpdate(
-      item._id,
-      {
-        $set: {
-          status: "failed",
-          queue_status: "failed",
-          stage: "extract_failed",
-          error: error.response?.data ? JSON.stringify(error.response.data) : error.message,
-          finished_at: new Date(),
-        },
-      },
-      { new: true }
-    );
+    return updateJobById(item._id, {
+      status: "failed",
+      queue_status: "failed",
+      stage: "extract_failed",
+      error: error.response?.data ? JSON.stringify(error.response.data) : error.message,
+      finished_at: new Date(),
+    });
   }
 }
 
@@ -98,7 +91,7 @@ async function startNextQueuedJob({ forcedQueueId = null } = {}) {
   while (true) {
     let nextJob = null;
     if (forcedQueueId && !forcedUsed) {
-      nextJob = await Job.findOne({ _id: forcedQueueId, queue_status: "queued" });
+      nextJob = await getQueuedById(forcedQueueId);
       forcedUsed = true;
     }
     if (!nextJob) nextJob = await getNextQueuedJob();
@@ -114,19 +107,13 @@ async function refreshActiveProcessingJob() {
   const active = await getActiveProcessingJob();
   if (!active) return { active: null, updated: false, nextStarted: false };
   if (!active.job_id) {
-    const marked = await Job.findByIdAndUpdate(
-      active._id,
-      {
-        $set: {
-          queue_status: "failed",
-          status: "failed",
-          stage: "missing_job_id",
-          error: "Missing remote job_id for processing item.",
-          finished_at: new Date(),
-        },
-      },
-      { new: true }
-    );
+    const marked = await updateJobById(active._id, {
+      queue_status: "failed",
+      status: "failed",
+      stage: "missing_job_id",
+      error: "Missing remote job_id for processing item.",
+      finished_at: new Date(),
+    });
     const next = await startNextQueuedJob();
     return { active: marked, updated: true, nextStarted: Boolean(next.started), next };
   }
@@ -135,19 +122,13 @@ async function refreshActiveProcessingJob() {
     const remote = await getJobStatus(active.job_id);
     const patch = mapRemoteToJobPatch(active.file_url, remote, "processing");
     const isTerminal = TERMINAL_STATUSES.has(String(remote.status || "").toLowerCase());
-    const saved = await Job.findByIdAndUpdate(
-      active._id,
-      {
-        $set: {
-          ...patch,
-          queue_status: normalizeQueueStatus(remote.status, "processing"),
-          started_at: active.started_at || new Date(),
-          finished_at: isTerminal ? new Date() : null,
-          queue_order: null,
-        },
-      },
-      { new: true }
-    );
+    const saved = await updateJobById(active._id, {
+      ...patch,
+      queue_status: normalizeQueueStatus(remote.status, "processing"),
+      started_at: active.started_at || new Date(),
+      finished_at: isTerminal ? new Date() : null,
+      queue_order: null,
+    });
 
     if (!isTerminal) return { active: saved, updated: true, nextStarted: false };
     const next = await startNextQueuedJob();
@@ -169,18 +150,12 @@ async function refreshJobById(job) {
   const remote = await getJobStatus(job.job_id);
   const patch = mapRemoteToJobPatch(job.file_url, remote, job.queue_status || "processing");
   const isTerminal = TERMINAL_STATUSES.has(String(remote.status || "").toLowerCase());
-  return Job.findByIdAndUpdate(
-    job._id,
-    {
-      $set: {
-        ...patch,
-        queue_status: normalizeQueueStatus(remote.status, job.queue_status || "processing"),
-        started_at: job.started_at || new Date(),
-        finished_at: isTerminal ? new Date() : null,
-      },
-    },
-    { new: true }
-  );
+  return updateJobById(job._id, {
+    ...patch,
+    queue_status: normalizeQueueStatus(remote.status, job.queue_status || "processing"),
+    started_at: job.started_at || new Date(),
+    finished_at: isTerminal ? new Date() : null,
+  });
 }
 
 router.post("/queue", async (req, res, next) => {
@@ -190,24 +165,7 @@ router.post("/queue", async (req, res, next) => {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
-    const maxOrderDoc = await Job.findOne({ queue_order: { $ne: null } })
-      .sort({ queue_order: -1 })
-      .select({ queue_order: 1 });
-    let nextOrder = maxOrderDoc?.queue_order ?? 0;
-
-    const docs = urls.map((url) => {
-      nextOrder += 1;
-      return {
-        file_url: url,
-        status: "queued",
-        stage: "queued",
-        progress: 0,
-        queue_status: "queued",
-        queue_order: nextOrder,
-      };
-    });
-
-    const created = await Job.insertMany(docs, { ordered: true });
+    const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
     res.json({ data: created, trigger });
   } catch (error) {
@@ -222,22 +180,7 @@ router.post("/ingest", async (req, res, next) => {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
-    const maxOrderDoc = await Job.findOne({ queue_order: { $ne: null } })
-      .sort({ queue_order: -1 })
-      .select({ queue_order: 1 });
-    let nextOrder = maxOrderDoc?.queue_order ?? 0;
-    const docs = urls.map((url) => {
-      nextOrder += 1;
-      return {
-        file_url: url,
-        status: "queued",
-        stage: "queued",
-        progress: 0,
-        queue_status: "queued",
-        queue_order: nextOrder,
-      };
-    });
-    const created = await Job.insertMany(docs, { ordered: true });
+    const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
     res.json({ data: created, trigger });
   } catch (error) {
@@ -256,7 +199,7 @@ router.get("/process", async (_req, res, next) => {
 
 router.get("/queue", async (_req, res, next) => {
   try {
-    const queued = await Job.find({ queue_status: "queued" }).sort({ queue_order: 1, createdAt: 1 });
+    const queued = await getQueuedJobs();
     res.json({ data: queued });
   } catch (error) {
     next(error);
@@ -265,7 +208,7 @@ router.get("/queue", async (_req, res, next) => {
 
 router.delete("/queue/:id", async (req, res, next) => {
   try {
-    const deleted = await Job.findOneAndDelete({ _id: req.params.id, queue_status: "queued" });
+    const deleted = await deleteQueuedById(req.params.id);
     if (!deleted) {
       return res.status(404).json({ message: "Queued item not found." });
     }
@@ -277,8 +220,8 @@ router.delete("/queue/:id", async (req, res, next) => {
 
 router.delete("/queue", async (_req, res, next) => {
   try {
-    const result = await Job.deleteMany({ queue_status: "queued" });
-    return res.json({ data: { deletedCount: result.deletedCount ?? 0 } });
+    const result = await clearQueuedJobs();
+    return res.json({ data: { deletedCount: result.deletedCount } });
   } catch (error) {
     next(error);
   }
@@ -286,10 +229,7 @@ router.delete("/queue", async (_req, res, next) => {
 
 router.get("/finished", async (_req, res, next) => {
   try {
-    const finished = await Job.find({ queue_status: { $in: ["completed", "failed"] } }).sort({
-      finished_at: -1,
-      updatedAt: -1,
-    });
+    const finished = await getFinishedJobs();
     res.json({ data: finished });
   } catch (error) {
     next(error);
@@ -320,7 +260,7 @@ router.post("/process/tick", async (_req, res, next) => {
 
 router.post("/:jobId/refresh", async (req, res, next) => {
   try {
-    const job = await Job.findOne({ job_id: req.params.jobId });
+    const job = await getByJobId(req.params.jobId);
     if (!job) return res.status(404).json({ message: "Job not found." });
     const saved = await refreshJobById(job);
     if (["completed", "failed", "canceled"].includes(saved.queue_status)) {
@@ -334,7 +274,7 @@ router.post("/:jobId/refresh", async (req, res, next) => {
 
 router.post("/refresh-all", async (_req, res, next) => {
   try {
-    const jobs = await Job.find({ job_id: { $ne: null } }).sort({ createdAt: 1 });
+    const jobs = await getJobsWithRemoteId();
     const results = [];
 
     for (const job of jobs) {
@@ -359,7 +299,7 @@ router.post("/refresh-all", async (_req, res, next) => {
 
 router.post("/queue/:id/force-replace", async (req, res, next) => {
   try {
-    const target = await Job.findOne({ _id: req.params.id, queue_status: "queued" });
+    const target = await getQueuedById(req.params.id);
     if (!target) return res.status(404).json({ message: "Queued item not found." });
 
     const active = await getActiveProcessingJob();
@@ -381,24 +321,16 @@ router.post("/queue/:id/force-replace", async (req, res, next) => {
       }
 
       const cancelPatch = mapRemoteToJobPatch(active.file_url, remote, "canceled");
-      await Job.findByIdAndUpdate(
-        active._id,
-        {
-          $set: {
-            ...cancelPatch,
-            queue_status: "canceled",
-            finished_at: new Date(),
-          },
-        },
-        { new: true }
-      );
+      await updateJobById(active._id, {
+        ...cancelPatch,
+        queue_status: "canceled",
+        finished_at: new Date(),
+      });
     }
-
-    const minOrderDoc = await Job.findOne({ queue_order: { $ne: null } })
-      .sort({ queue_order: 1 })
-      .select({ queue_order: 1 });
-    const forcedOrder = (minOrderDoc?.queue_order ?? 1) - 1;
-    await Job.findByIdAndUpdate(target._id, { $set: { queue_order: forcedOrder } });
+    const queued = await getQueuedJobs();
+    const minOrder = queued.length ? Math.min(...queued.map((x) => x.queue_order ?? 1)) : 1;
+    const forcedOrder = minOrder - 1;
+    await updateJobById(target._id, { queue_order: forcedOrder });
 
     const started = await startNextQueuedJob({ forcedQueueId: target._id });
     res.json({ data: started });
@@ -409,7 +341,7 @@ router.post("/queue/:id/force-replace", async (req, res, next) => {
 
 router.get("/", async (_req, res, next) => {
   try {
-    const jobs = await Job.find().sort({ createdAt: -1 });
+    const jobs = await getAllJobs();
     res.json({ data: jobs });
   } catch (error) {
     next(error);

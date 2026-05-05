@@ -1,10 +1,8 @@
-const mongoose = require("mongoose");
-const env = require("./env");
+const { readData, dataFilePath } = require("../storage/dataStore");
 
 async function connectDb() {
-  mongoose.set("strictQuery", true);
-  await mongoose.connect(env.mongoUri);
-  return mongoose.connection;
+  await readData();
+  return { type: "json", file: dataFilePath };
 }
 
 module.exports = { connectDb };

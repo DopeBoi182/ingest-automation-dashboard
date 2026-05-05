@@ -1,5 +1,5 @@
 const env = require("../config/env");
-const GlobalSetting = require("../models/GlobalSetting");
+const { getSetting, setSetting } = require("../storage/settingRepository");
 
 function parseTags(tagsInput) {
   if (Array.isArray(tagsInput)) {
@@ -29,9 +29,9 @@ function defaultSettingPayload() {
 }
 
 async function getOrCreateGlobalSetting() {
-  const existing = await GlobalSetting.findOne({ key: "default" });
+  const existing = await getSetting();
   if (existing) return existing;
-  return GlobalSetting.create(defaultSettingPayload());
+  return setSetting(defaultSettingPayload());
 }
 
 module.exports = {

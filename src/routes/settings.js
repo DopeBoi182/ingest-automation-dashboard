@@ -1,5 +1,6 @@
 const express = require("express");
 const { getOrCreateGlobalSetting, parseTags } = require("../utils/settings");
+const { updateSetting } = require("../storage/settingRepository");
 
 const router = express.Router();
 
@@ -20,7 +21,7 @@ router.get("/", async (_req, res, next) => {
 
 router.put("/", async (req, res, next) => {
   try {
-    const current = await getOrCreateGlobalSetting();
+    const current = { ...(await getOrCreateGlobalSetting()) };
     const body = req.body || {};
 
     if (body.knowledge_source !== undefined) {
@@ -47,8 +48,8 @@ router.put("/", async (req, res, next) => {
     }
     if (body.force !== undefined) current.force = toBoolean(body.force, current.force);
 
-    await current.save();
-    res.json({ data: current });
+    const updated = await updateSetting(current);
+    res.json({ data: updated });
   } catch (error) {
     next(error);
   }

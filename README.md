@@ -1,10 +1,10 @@
 # Automation AI Ingestion Dashboard
 
-Single Node.js app with MongoDB + jQuery dashboard to:
+Single Node.js app with local JSON storage + jQuery dashboard to:
 - enqueue comma-separated URLs into a queue pool,
 - auto-start the first queued URL immediately after submit when worker is idle,
 - process only one active job at a time (single worker),
-- store each job in MongoDB,
+- store each job in `data/storage.json`,
 - auto-refresh active process status every 30 seconds and continue next queue item,
 - force replace current process by canceling it and starting selected queued item,
 - maintain global settings (`knowledge_source`, `knowledge_tags`, etc.),
@@ -12,12 +12,12 @@ Single Node.js app with MongoDB + jQuery dashboard to:
 
 ## Stack
 - Node.js + Express
-- MongoDB + Mongoose
+- Local JSON file storage
 - jQuery + HTML + CSS
 
 ## Setup
 1. Copy `.env.example` to `.env`.
-2. Update MongoDB and endpoint values if needed.
+2. Update endpoint values and storage file path if needed.
 3. Install dependencies:
    - `npm install`
 4. Run app:

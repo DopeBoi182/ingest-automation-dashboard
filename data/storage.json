@@ -1,0 +1,107 @@
+{
+  "jobs": [
+    {
+      "_id": "3e4a28cc-9446-41a8-b3a5-de15481391b3",
+      "file_url": "https://s3.us-east-1.amazonaws.com/kaka-demo-bucket/FAQ%20Fungsi%20Asset.docx.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAUG73Z7T574ZOQNLM%2F20260505%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260505T061845Z&X-Amz-Expires=900&X-Amz-Signature=7a148d8e8f229dac9d037814b82a721e0c4b0597c9739ea47b26387fad446fc9&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "job_id": "job_1IoS8fCIN2ocK7mQ",
+      "status": "failed",
+      "stage": "graph_ingest",
+      "progress": 0,
+      "resource_key": "rk_f453ac7179fe2d3e95fb30ccd9bb96b8",
+      "error": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"2\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"3\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"4\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"5\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n</failed_attempts>\n\n<last_exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</last_exception>",
+      "raw_response": {
+        "job_id": "job_1IoS8fCIN2ocK7mQ",
+        "status": "failed",
+        "stage": "graph_ingest",
+        "progress": 0,
+        "error": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"2\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"3\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"4\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"5\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n</failed_attempts>\n\n<last_exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</last_exception>",
+        "resource_key": "rk_f453ac7179fe2d3e95fb30ccd9bb96b8",
+        "created_at": 1777961925.844139,
+        "updated_at": 1777961937.762512
+      },
+      "created_at_remote": "2026-05-05T06:18:45.844Z",
+      "updated_at_remote": "2026-05-05T06:18:57.762Z",
+      "queue_status": "failed",
+      "queue_order": null,
+      "started_at": "2026-05-05T06:18:45.868Z",
+      "finished_at": "2026-05-05T06:18:58.662Z",
+      "createdAt": "2026-05-05T06:18:45.791Z",
+      "updatedAt": "2026-05-05T06:18:58.663Z"
+    },
+    {
+      "_id": "83762f61-4ed7-4580-9b2b-9896de103ae6",
+      "file_url": "https://s3.us-east-1.amazonaws.com/kaka-demo-bucket/uploads/Download-PlhKnowledgeFiles.ps1?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAUG73Z7T574ZOQNLM%2F20260505%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260505T061845Z&X-Amz-Expires=900&X-Amz-Signature=db7c2d48c1a922d4ccfaae7373f390cd69feade75fc1bb67c94135cfbd630e93&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "job_id": "job_kbeQcvNsHw5-C2zz",
+      "status": "failed",
+      "stage": "failed",
+      "progress": 0,
+      "resource_key": "rk_877229a3eda34ea1a4f1c2de728eefb4",
+      "error": "An error occurred (AccessDeniedException) when calling the Converse operation: Authentication failed: Please make sure your API Key is valid.",
+      "raw_response": {
+        "job_id": "job_kbeQcvNsHw5-C2zz",
+        "status": "failed",
+        "stage": "failed",
+        "progress": 0,
+        "error": "An error occurred (AccessDeniedException) when calling the Converse operation: Authentication failed: Please make sure your API Key is valid.",
+        "resource_key": "rk_877229a3eda34ea1a4f1c2de728eefb4",
+        "created_at": 1777961938.68487,
+        "updated_at": 1777961949.971368
+      },
+      "created_at_remote": "2026-05-05T06:18:58.684Z",
+      "updated_at_remote": "2026-05-05T06:19:09.971Z",
+      "queue_status": "failed",
+      "queue_order": null,
+      "started_at": "2026-05-05T06:18:58.720Z",
+      "finished_at": "2026-05-05T06:19:18.431Z",
+      "createdAt": "2026-05-05T06:18:45.791Z",
+      "updatedAt": "2026-05-05T06:19:18.432Z"
+    },
+    {
+      "_id": "b20229cd-9472-406d-89e3-0b5ea92af652",
+      "file_url": "https://s3.us-east-1.amazonaws.com/kaka-demo-bucket/uploads/Invoice-B0S7YCQR-0009%20%281%29.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAUG73Z7T574ZOQNLM%2F20260505%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260505T061845Z&X-Amz-Expires=900&X-Amz-Signature=bcb1919429012e34eb24e1678883f1cc5c0fff9ab62ddbee7fc6e30d275191b4&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "job_id": "job_j44Yx3dGGmVV3kt8",
+      "status": "failed",
+      "stage": "graph_ingest",
+      "progress": 0,
+      "resource_key": "rk_84f714d59ab25d34210c5500b3913156",
+      "error": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"2\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"3\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"4\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"5\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n</failed_attempts>\n\n<last_exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</last_exception>",
+      "raw_response": {
+        "job_id": "job_j44Yx3dGGmVV3kt8",
+        "status": "failed",
+        "stage": "graph_ingest",
+        "progress": 0,
+        "error": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"2\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"3\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"4\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n<generation number=\"5\">\n<exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</exception>\n<completion>\n    None\n</completion>\n</generation>\n\n</failed_attempts>\n\n<last_exception>\n    litellm.APIConnectionError: BedrockException - {\"Message\":\"Authentication failed: Please make sure your API Key is valid.\"}\n</last_exception>",
+        "resource_key": "rk_84f714d59ab25d34210c5500b3913156",
+        "created_at": 1777961958.451432,
+        "updated_at": 1777962016.1778686
+      },
+      "created_at_remote": "2026-05-05T06:19:18.451Z",
+      "updated_at_remote": "2026-05-05T06:20:16.177Z",
+      "queue_status": "failed",
+      "queue_order": null,
+      "started_at": "2026-05-05T06:19:18.475Z",
+      "finished_at": "2026-05-05T06:20:19.278Z",
+      "createdAt": "2026-05-05T06:18:45.791Z",
+      "updatedAt": "2026-05-05T06:20:19.279Z"
+    }
+  ],
+  "setting": {
+    "key": "default",
+    "knowledge_source": "repo-demo",
+    "knowledge_tags": [
+      "Oil & Gas Production",
+      "Process Engineering"
+    ],
+    "provider": "bedrock",
+    "prompt": "You are an OCR-style extractor. Return only what is visibly present in the document.",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "embed": true,
+    "vdb_collection": "docs",
+    "callback_url": "http://localhost:9001/callback",
+    "vector_group": "staging",
+    "force": true,
+    "createdAt": "2026-05-05T06:15:30.415Z",
+    "updatedAt": "2026-05-05T06:15:30.415Z"
+  }
+}

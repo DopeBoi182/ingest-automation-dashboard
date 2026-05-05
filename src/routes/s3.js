@@ -1,9 +1,14 @@
 const express = require("express");
-const Job = require("../models/Job");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
 const { submitExtractJob } = require("../services/ingestorClient");
 const { listObjectKeys, buildUrlForKey, validateS3Config } = require("../services/s3Client");
 const env = require("../config/env");
+const {
+  getActiveProcessingJob,
+  getNextQueuedJob,
+  createQueuedJobsFromUrls,
+  updateJobById,
+} = require("../storage/jobRepository");
 
 const router = express.Router();
 
@@ -52,45 +57,25 @@ function mapRemoteToJobPatch(fileUrl, payload, fallbackQueueStatus = "processing
   };
 }
 
-async function getActiveProcessingJob() {
-  return Job.findOne({ queue_status: "processing" }).sort({ started_at: 1, createdAt: 1 });
-}
-
-async function getNextQueuedJob() {
-  return Job.findOne({ queue_status: "queued" }).sort({ queue_order: 1, createdAt: 1 });
-}
-
 async function startQueueItem(item, setting) {
   try {
     const remote = await submitExtractJob(item.file_url, setting);
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
-    return Job.findByIdAndUpdate(
-      item._id,
-      {
-        $set: {
-          ...patch,
-          queue_status: "processing",
-          started_at: new Date(),
-          finished_at: null,
-          queue_order: null,
-        },
-      },
-      { new: true }
-    );
+    return updateJobById(item._id, {
+      ...patch,
+      queue_status: "processing",
+      started_at: new Date(),
+      finished_at: null,
+      queue_order: null,
+    });
   } catch (error) {
-    return Job.findByIdAndUpdate(
-      item._id,
-      {
-        $set: {
-          status: "failed",
-          queue_status: "failed",
-          stage: "extract_failed",
-          error: error.response?.data ? JSON.stringify(error.response.data) : error.message,
-          finished_at: new Date(),
-        },
-      },
-      { new: true }
-    );
+    return updateJobById(item._id, {
+      status: "failed",
+      queue_status: "failed",
+      stage: "extract_failed",
+      error: error.response?.data ? JSON.stringify(error.response.data) : error.message,
+      finished_at: new Date(),
+    });
   }
 }
 
@@ -180,24 +165,7 @@ router.post("/ingest", async (req, res, next) => {
 
     const urls = await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })));
 
-    const maxOrderDoc = await Job.findOne({ queue_order: { $ne: null } })
-      .sort({ queue_order: -1 })
-      .select({ queue_order: 1 });
-    let nextOrder = maxOrderDoc?.queue_order ?? 0;
-
-    const docs = urls.map((url) => {
-      nextOrder += 1;
-      return {
-        file_url: url,
-        status: "queued",
-        stage: "queued",
-        progress: 0,
-        queue_status: "queued",
-        queue_order: nextOrder,
-      };
-    });
-
-    const created = await Job.insertMany(docs, { ordered: true });
+    const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
 
     return res.json({

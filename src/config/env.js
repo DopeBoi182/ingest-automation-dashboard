@@ -89,6 +89,11 @@ const env = {
   s3SecretAccessKey: process.env.Storage__S3__SecretAccessKey || "",
   s3Bucket: process.env.Storage__S3__Bucket || "",
   s3PublicBaseUrl: (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, ""),
+  s3FileMetadataBaseUrl: (process.env.S3_FILE_METADATA_BASE_URL || "").replace(/\/$/, ""),
+  s3FileMetadataPath: (process.env.S3_FILE_METADATA_PATH || "api/v1/file-metadata").replace(
+    /^\/+/,
+    ""
+  ),
   s3TlsMode: normalizeS3TlsMode(process.env.S3_TLS_MODE),
   s3InsecureSkipVerify: toBool(process.env.S3_INSECURE_SKIP_VERIFY, false),
   s3CaCertPath: normalizeOptionalFilePath(process.env.S3_CA_CERT_PATH),

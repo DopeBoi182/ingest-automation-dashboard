@@ -216,9 +216,11 @@ router.get("/files/urls", async (req, res, next) => {
       hasContinuationToken: Boolean(continuationToken),
     });
 
-    if (!["presigned", "public"].includes(mode)) {
+    if (!["presigned", "public", "metadata"].includes(mode)) {
       logS3Info("GET /files/urls.invalid_mode", { mode });
-      return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
+      return res
+        .status(400)
+        .json({ message: "mode must be 'presigned', 'public', or 'metadata'." });
     }
 
     const listed = await listObjectKeys({ prefix, maxKeys, continuationToken });
@@ -281,9 +283,11 @@ router.get("/files", async (req, res, next) => {
       logS3Info("GET /files.invalid_data_mode", { dataMode });
       return res.status(400).json({ message: "dataMode must be 'keys' or 'full'." });
     }
-    if (!["presigned", "public"].includes(mode)) {
+    if (!["presigned", "public", "metadata"].includes(mode)) {
       logS3Info("GET /files.invalid_mode", { mode });
-      return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
+      return res
+        .status(400)
+        .json({ message: "mode must be 'presigned', 'public', or 'metadata'." });
     }
 
     const listed = await listObjects({ prefix, maxKeys, continuationToken });
@@ -361,9 +365,11 @@ router.post("/ingest", async (req, res, next) => {
       logS3Info("POST /ingest.invalid_keys");
       return res.status(400).json({ message: "keys is required as a non-empty array." });
     }
-    if (!["presigned", "public"].includes(mode)) {
+    if (!["presigned", "public", "metadata"].includes(mode)) {
       logS3Info("POST /ingest.invalid_mode", { mode });
-      return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
+      return res
+        .status(400)
+        .json({ message: "mode must be 'presigned', 'public', or 'metadata'." });
     }
 
     const urls = await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })));

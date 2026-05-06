@@ -259,6 +259,17 @@ function buildPublicUrlFromKey(key) {
   return url;
 }
 
+function buildFileMetadataUrlFromKey(key) {
+  if (!env.s3FileMetadataBaseUrl) {
+    logS3Info("buildFileMetadataUrlFromKey.missing_base_url");
+    throw new Error("S3_FILE_METADATA_BASE_URL is required for metadata mode.");
+  }
+  const params = new URLSearchParams({ fileKey: String(key) });
+  const url = `${env.s3FileMetadataBaseUrl}/${env.s3FileMetadataPath}?${params.toString()}`;
+  logS3Info("buildFileMetadataUrlFromKey.success", { key });
+  return url;
+}
+
 async function generatePresignedUrl({ key, ttlSeconds }) {
   const expiresIn = ttlSeconds ?? env.s3PresignTtlSeconds;
   logS3Info("generatePresignedUrl.begin", {
@@ -290,6 +301,9 @@ async function buildUrlForKey({ key, mode = "presigned", ttlSeconds }) {
   logS3Info("buildUrlForKey.begin", { key, mode });
   if (mode === "public") {
     return buildPublicUrlFromKey(key);
+  }
+  if (mode === "metadata") {
+    return buildFileMetadataUrlFromKey(key);
   }
   const url = await generatePresignedUrl({ key, ttlSeconds });
   logS3Info("buildUrlForKey.success", { key, mode });

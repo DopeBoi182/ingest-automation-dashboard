@@ -14,12 +14,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",
     "@aws-sdk/s3-request-presigner": "^3.1041.0",
-    "axios": "^1.15.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "form-data": "^4.0.5",
-    "multer": "^2.1.1",
-    "node-libcurl": "^5.0.2"
+    "multer": "^2.1.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

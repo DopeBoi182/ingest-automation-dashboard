@@ -1,9 +1,11 @@
 const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 const env = require("../config/env");
 
-const dataFilePath = env.dataFile;
+let dataFilePath = env.dataFile;
+let dataFileReadyPromise = null;
 
 const defaultData = {
   jobs: [],
@@ -31,9 +33,36 @@ async function ensureDataFile() {
   }
 }
 
+function isPermissionError(error) {
+  return ["EACCES", "EPERM", "EROFS"].includes(error?.code);
+}
+
+async function resolveDataFilePath() {
+  if (!dataFileReadyPromise) {
+    dataFileReadyPromise = (async () => {
+      try {
+        await ensureDataFile();
+      } catch (error) {
+        if (!isPermissionError(error)) throw error;
+
+        const fallbackPath = path.join(os.tmpdir(), "automation_ai_ingestion", "storage.json");
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[DataStore] Cannot access DATA_FILE at "${dataFilePath}" (${error.code}). Falling back to "${fallbackPath}".`
+        );
+        dataFilePath = fallbackPath;
+        await ensureDataFile();
+      }
+    })();
+  }
+
+  await dataFileReadyPromise;
+  return dataFilePath;
+}
+
 async function readData() {
-  await ensureDataFile();
-  const raw = await fs.readFile(dataFilePath, "utf8");
+  const activeDataFilePath = await resolveDataFilePath();
+  const raw = await fs.readFile(activeDataFilePath, "utf8");
   if (!raw.trim()) return deepClone(defaultData);
   try {
     const parsed = JSON.parse(raw);
@@ -47,12 +76,16 @@ async function readData() {
 }
 
 async function writeData(nextData) {
-  await ensureDataFile();
+  const activeDataFilePath = await resolveDataFilePath();
   const payload = {
     jobs: Array.isArray(nextData.jobs) ? nextData.jobs : [],
     setting: nextData.setting || null,
   };
-  await fs.writeFile(dataFilePath, JSON.stringify(payload, null, 2), "utf8");
+  await fs.writeFile(activeDataFilePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function getDataFilePath() {
+  return dataFilePath;
 }
 
 async function updateData(updater) {
@@ -73,5 +106,5 @@ module.exports = {
   writeData,
   updateData,
   generateId,
-  dataFilePath,
+  getDataFilePath,
 };

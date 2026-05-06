@@ -1,7 +1,13 @@
 const express = require("express");
 const { getOrCreateGlobalSetting } = require("../utils/settings");
 const { submitExtractJob } = require("../services/ingestorClient");
-const { listObjectKeys, buildUrlForKey, validateS3Config } = require("../services/s3Client");
+const {
+  listObjectKeys,
+  listObjects,
+  buildUrlForKey,
+  validateS3Config,
+  checkS3Connectivity,
+} = require("../services/s3Client");
 const env = require("../config/env");
 const {
   getActiveProcessingJob,
@@ -160,6 +166,39 @@ router.get("/health", (_req, res) => {
   }
 });
 
+router.get("/health/live", async (_req, res) => {
+  try {
+    logS3Info("GET /health/live.begin");
+    const result = await checkS3Connectivity();
+    if (!result.ok) {
+      logS3Info("GET /health/live.fail", {
+        bucket: result.bucket,
+        endpoint: result.endpoint,
+        tlsMode: result.tlsMode,
+      });
+      return res.status(503).json({
+        message: "S3 connectivity check failed",
+        detail: result.error?.message || "Unknown S3 connectivity error",
+        data: result,
+      });
+    }
+
+    logS3Info("GET /health/live.success", {
+      bucket: result.bucket,
+      endpoint: result.endpoint,
+      latencyMs: result.latencyMs,
+      tlsMode: result.tlsMode,
+    });
+    return res.json({ data: result });
+  } catch (error) {
+    logS3Error("GET /health/live", error);
+    return res.status(500).json({
+      message: "Failed to perform S3 connectivity check",
+      detail: error?.message || "Unexpected error",
+    });
+  }
+});
+
 router.get("/files/urls", async (req, res, next) => {
   try {
     const prefix = String(req.query.prefix || "");
@@ -214,6 +253,68 @@ router.get("/files/urls", async (req, res, next) => {
     logS3Error("GET /files/urls", error, {
       prefix: String(req.query.prefix || ""),
       mode: String(req.query.mode || "presigned").toLowerCase(),
+    });
+    next(error);
+  }
+});
+
+router.get("/files", async (req, res, next) => {
+  try {
+    const prefix = String(req.query.prefix || "");
+    const maxKeys = toNumber(req.query.maxKeys, 1000);
+    const dataMode = String(req.query.dataMode || "keys").toLowerCase();
+    const continuationToken = req.query.continuationToken
+      ? String(req.query.continuationToken)
+      : undefined;
+    logS3Info("GET /files.begin", {
+      prefix,
+      maxKeys,
+      dataMode,
+      hasContinuationToken: Boolean(continuationToken),
+    });
+
+    if (!["keys", "full"].includes(dataMode)) {
+      logS3Info("GET /files.invalid_data_mode", { dataMode });
+      return res.status(400).json({ message: "dataMode must be 'keys' or 'full'." });
+    }
+
+    const listed = await listObjects({ prefix, maxKeys, continuationToken });
+    const fileItems = listed.objects.filter((item) => isFileLikeKey(item.key));
+    const files =
+      dataMode === "keys"
+        ? fileItems.map((item) => ({ key: item.key }))
+        : fileItems.map((item) => ({
+            key: item.key,
+            size: item.size,
+            lastModified: item.lastModified,
+            etag: item.etag,
+            storageClass: item.storageClass,
+          }));
+
+    logS3Info("GET /files.success", {
+      prefix,
+      requestedMaxKeys: maxKeys,
+      dataMode,
+      listedCount: listed.objects.length,
+      fileCount: files.length,
+      isTruncated: listed.isTruncated,
+      hasNextContinuationToken: Boolean(listed.nextContinuationToken),
+    });
+
+    return res.json({
+      data: {
+        prefix,
+        dataMode,
+        count: files.length,
+        isTruncated: listed.isTruncated,
+        nextContinuationToken: listed.nextContinuationToken,
+        files,
+      },
+    });
+  } catch (error) {
+    logS3Error("GET /files", error, {
+      prefix: String(req.query.prefix || ""),
+      dataMode: String(req.query.dataMode || "keys").toLowerCase(),
     });
     next(error);
   }

@@ -20,18 +20,26 @@ function getFilters() {
     prefix: $("#prefixInput").val().trim(),
     maxKeys: Number($("#maxKeysInput").val()) || 100,
     mode: $("#modeInput").val(),
+    dataMode: $("#dataModeInput").val(),
     ttlSeconds: Number($("#ttlInput").val()) || 900,
   };
 }
 
 function rowTemplate(file, index) {
+  const dataCell =
+    file.url ||
+    (file.size !== undefined
+      ? `size=${file.size}, lastModified=${file.lastModified || "-"}, etag=${file.etag || "-"}, storageClass=${
+          file.storageClass || "-"
+        }`
+      : "-");
   return `
     <tr>
       <td>
         <input type="checkbox" class="file-checkbox" data-index="${index}" />
       </td>
       <td>${file.key}</td>
-      <td class="url-cell"><a href="${file.url}" target="_blank" rel="noopener noreferrer">${file.url}</a></td>
+      <td class="url-cell">${dataCell}</td>
     </tr>
   `;
 }
@@ -47,14 +55,13 @@ async function fetchFiles({ append }) {
   const query = {
     prefix: filters.prefix,
     maxKeys: filters.maxKeys,
-    mode: filters.mode,
-    ttlSeconds: filters.ttlSeconds,
+    dataMode: filters.dataMode,
   };
   if (append && state.nextContinuationToken) {
     query.continuationToken = state.nextContinuationToken;
   }
 
-  const response = await $.getJSON("./api/s3/files/urls", query);
+  const response = await $.getJSON("./api/s3/files", query);
   const payload = response.data || {};
 
   if (!append) {
@@ -66,7 +73,7 @@ async function fetchFiles({ append }) {
   state.nextContinuationToken = payload.nextContinuationToken || null;
   state.hasMore = Boolean(payload.isTruncated && payload.nextContinuationToken);
   renderFiles();
-  showStatus(`Loaded ${state.files.length} file(s).`);
+  showStatus(`Loaded ${state.files.length} file(s) in ${filters.dataMode} mode.`);
 }
 
 function selectedKeys() {
@@ -102,20 +109,24 @@ async function ingestKeys(keys) {
 }
 
 async function checkHealth() {
-  const response = await $.getJSON("./api/s3/health");
+  const response = await $.getJSON("./api/s3/health/live");
   const data = response.data || {};
-  showStatus(`S3 OK. Bucket: ${data.bucket || "-"}, Endpoint: ${data.endpoint || "-"}`);
+  showStatus(
+    `S3 OK. Bucket: ${data.bucket || "-"}, Endpoint: ${data.endpoint || "-"}, TLS: ${
+      data.tlsMode || "-"
+    }, latency: ${data.latencyMs ?? "-"}ms`
+  );
 }
 
 $(document).ready(() => {
   $("#s3QueryForm").on("submit", async (event) => {
     event.preventDefault();
     $("#generateBtn").prop("disabled", true);
-    showStatus("Generating URLs...");
+    showStatus("Loading S3 data...");
     try {
       await fetchFiles({ append: false });
     } catch (error) {
-      showStatus(`Generate URLs failed: ${extractError(error)}`);
+      showStatus(`Load S3 data failed: ${extractError(error)}`);
     } finally {
       $("#generateBtn").prop("disabled", false);
     }

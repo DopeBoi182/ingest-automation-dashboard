@@ -102,6 +102,15 @@ It helps you:
 - `FORCE_PATH_STYLE` (AWS usually `false`)
 - `USE_HTTPS` (`true` recommended)
 - `S3_PUBLIC_BASE_URL` (required for `public` mode)
+- `S3_TLS_MODE` (`secure` | `insecure` | `ca`, default `secure`)
+- `S3_INSECURE_SKIP_VERIFY` (`true` forces insecure compatibility mode)
+- `S3_CA_CERT_PATH` (required when `S3_TLS_MODE=ca`, PEM file path)
+
+### TLS Mode Guidance
+- `secure`: default production mode (`rejectUnauthorized=true`).
+- `insecure`: compatibility mode for self-signed/non-trusted cert chains.
+- `ca`: secure custom CA mode, where app trusts your provided CA bundle.
+- Prefer `ca` for production private S3-compatible endpoints.
 
 ## 7) How To Use (Operator Guide)
 
@@ -123,6 +132,7 @@ It helps you:
 2. Input prefix/max keys/mode/ttl.
 3. Click **Generate URLs**.
 4. Select files and click **Ingest Selected** (or **Ingest All**).
+5. Click **Check S3 Health** to run live S3 connectivity probe.
 
 ### Step 4 - Queue Controls
 - **Execute One**: trigger next queued item if idle.
@@ -161,6 +171,7 @@ It helps you:
 
 ## S3
 - `GET /api/s3/health`
+- `GET /api/s3/health/live`
 - `GET /api/s3/files/urls`
 - `POST /api/s3/ingest`
 
@@ -174,6 +185,14 @@ Grant IAM user permissions:
 ### S3 public mode returns 403
 - Ensure bucket/object policy allows public read, or
 - use CloudFront public URL in `S3_PUBLIC_BASE_URL`.
+
+### "self-signed certificate in certificate chain"
+- Use `S3_TLS_MODE=ca` and set `S3_CA_CERT_PATH` to your trusted CA PEM.
+- If you need temporary compatibility behavior, use `S3_TLS_MODE=insecure` (or `S3_INSECURE_SKIP_VERIFY=true`).
+- Verify connectivity via:
+  - S3 page button (**Check S3 Health**), or
+  - dashboard button (**S3 Connectivity**), or
+  - `GET /api/s3/health/live`.
 
 ### Jobs do not progress
 - Check `EXTERNAL_BASE_URL` and extractor endpoint values.

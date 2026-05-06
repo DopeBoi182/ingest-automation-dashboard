@@ -394,6 +394,21 @@ function renderHealthcheckerResult(payload) {
   return lines.join("\n");
 }
 
+function renderS3ConnectivityResult(payload) {
+  const lines = [];
+  lines.push(`OK: ${payload?.ok ? "true" : "false"}`);
+  lines.push(`Provider: ${payload?.provider || "-"}`);
+  lines.push(`Bucket: ${payload?.bucket || "-"}`);
+  lines.push(`Endpoint: ${payload?.endpoint || "-"}`);
+  lines.push(`TLS mode: ${payload?.tlsMode || "-"}`);
+  lines.push(`Latency (ms): ${payload?.latencyMs ?? "-"}`);
+  lines.push(`Timestamp: ${payload?.timestamp || "-"}`);
+  if (payload?.error?.message) {
+    lines.push(`Error: ${payload.error.message}`);
+  }
+  return lines.join("\n");
+}
+
 async function runHealthchecker() {
   $("#healthcheckerBtn").prop("disabled", true);
   $("#healthcheckerOutput").text("Checking health endpoints...");
@@ -417,6 +432,42 @@ async function runHealthchecker() {
     logFeError("healthchecker", error);
   } finally {
     $("#healthcheckerBtn").prop("disabled", false);
+  }
+}
+
+async function runS3ConnectivityCheck() {
+  $("#s3ConnectivityBtn").prop("disabled", true);
+  $("#s3ConnectivityOutput").text("Checking S3 connectivity...");
+  showStatus("Running S3 connectivity check...");
+  logFeInfo("s3Connectivity.begin");
+  try {
+    const response = await $.getJSON("./api/s3/health/live");
+    const data = response.data || {};
+    $("#s3ConnectivityOutput").text(renderS3ConnectivityResult(data));
+    showStatus(
+      `S3 connectivity OK (${data.tlsMode || "-"}, ${data.latencyMs ?? "-"}ms, bucket ${
+        data.bucket || "-"
+      }).`
+    );
+    logFeInfo("s3Connectivity.success", {
+      bucket: data.bucket || "",
+      endpoint: data.endpoint || "",
+      tlsMode: data.tlsMode || "",
+      latencyMs: data.latencyMs ?? null,
+    });
+  } catch (error) {
+    const data = error.responseJSON?.data;
+    if (data) {
+      $("#s3ConnectivityOutput").text(renderS3ConnectivityResult(data));
+      showStatus(`S3 connectivity failed: ${data.error?.message || extractError(error)}`);
+    } else {
+      const msg = extractError(error);
+      $("#s3ConnectivityOutput").text(`S3 connectivity failed.\n${msg}`);
+      showStatus(`S3 connectivity failed: ${msg}`);
+    }
+    logFeError("s3Connectivity", error);
+  } finally {
+    $("#s3ConnectivityBtn").prop("disabled", false);
   }
 }
 
@@ -560,5 +611,9 @@ $(document).ready(async () => {
 
   $("#healthcheckerBtn").on("click", async () => {
     await runHealthchecker();
+  });
+
+  $("#s3ConnectivityBtn").on("click", async () => {
+    await runS3ConnectivityCheck();
   });
 });

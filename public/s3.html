@@ -35,13 +35,20 @@
               </select>
             </label>
             <label>
+              S3 Data Mode
+              <select id="dataModeInput">
+                <option value="keys">keys (path only)</option>
+                <option value="full">full metadata</option>
+              </select>
+            </label>
+            <label>
               TTL Seconds (presigned only)
               <input type="number" id="ttlInput" value="900" min="1" />
             </label>
           </div>
 
           <div class="actions">
-            <button type="submit" id="generateBtn">Generate URLs</button>
+            <button type="submit" id="generateBtn">Load S3 Data</button>
             <button type="button" id="loadMoreBtn" class="secondary" disabled>Load More</button>
             <button type="button" id="checkHealthBtn" class="secondary">Check S3 Health</button>
           </div>
@@ -63,7 +70,7 @@
               <tr>
                 <th style="width: 48px;">Pick</th>
                 <th>Object Key</th>
-                <th>Generated URL</th>
+                <th>Data</th>
               </tr>
             </thead>
             <tbody id="filesBody">

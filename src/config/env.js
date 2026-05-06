@@ -42,6 +42,19 @@ function normalizeDataFile(value) {
   return path.join(process.cwd(), raw);
 }
 
+function normalizeOptionalFilePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (path.isAbsolute(raw)) return raw;
+  return path.join(process.cwd(), raw);
+}
+
+function normalizeS3TlsMode(value) {
+  const raw = String(value || "secure").trim().toLowerCase();
+  if (["secure", "insecure", "ca"].includes(raw)) return raw;
+  return "secure";
+}
+
 const env = {
   port: toNumber(process.env.PORT, 9001),
   appBasePath: normalizeBasePath(process.env.APP_BASE_PATH),
@@ -76,6 +89,9 @@ const env = {
   s3SecretAccessKey: process.env.Storage__S3__SecretAccessKey || "",
   s3Bucket: process.env.Storage__S3__Bucket || "",
   s3PublicBaseUrl: (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, ""),
+  s3TlsMode: normalizeS3TlsMode(process.env.S3_TLS_MODE),
+  s3InsecureSkipVerify: toBool(process.env.S3_INSECURE_SKIP_VERIFY, false),
+  s3CaCertPath: normalizeOptionalFilePath(process.env.S3_CA_CERT_PATH),
 };
 
 env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);

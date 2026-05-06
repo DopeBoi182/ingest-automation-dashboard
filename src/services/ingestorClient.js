@@ -1,13 +1,6 @@
-const axios = require("axios");
-const fs = require("fs");
 const path = require("path");
-const FormData = require("form-data");
 const env = require("../config/env");
-
-const client = axios.create({
-  baseURL: env.externalBaseUrl,
-  timeout: env.requestTimeoutMs,
-});
+const { request, createMultipartFields } = require("./externalHttpClient");
 
 function logIngestorInfo(action, meta = {}) {
   // eslint-disable-next-line no-console
@@ -32,23 +25,27 @@ async function submitExtractJob(fileUrl, setting) {
     provider: setting?.provider || "",
     knowledgeSource: setting?.knowledge_source || "",
   });
-  const form = new FormData();
-  form.append("url", fileUrl);
-  form.append("provider", setting.provider);
-  form.append("prompt", setting.prompt);
-  form.append("chunk_size", String(setting.chunk_size));
-  form.append("chunk_overlap", String(setting.chunk_overlap));
-  form.append("embed", String(Boolean(setting.embed)));
-  form.append("vdb_collection", setting.vdb_collection);
-  form.append("callback_url", setting.callback_url || "");
-  form.append("vector_group", setting.vector_group);
-  form.append("knowledge_source", setting.knowledge_source);
-  form.append("knowledge_tags", JSON.stringify(setting.knowledge_tags || []));
-  form.append("force", String(Boolean(setting.force)));
+  const fields = {
+    url: fileUrl,
+    provider: setting.provider,
+    prompt: setting.prompt,
+    chunk_size: String(setting.chunk_size),
+    chunk_overlap: String(setting.chunk_overlap),
+    embed: String(Boolean(setting.embed)),
+    vdb_collection: setting.vdb_collection,
+    callback_url: setting.callback_url || "",
+    vector_group: setting.vector_group,
+    knowledge_source: setting.knowledge_source,
+    knowledge_tags: JSON.stringify(setting.knowledge_tags || []),
+    force: String(Boolean(setting.force)),
+  };
 
   try {
-    const response = await client.post(env.extractEndpoint, form, {
-      headers: form.getHeaders(),
+    const response = await request({
+      method: "POST",
+      endpoint: env.extractEndpoint,
+      httpPost: createMultipartFields(fields),
+      timeoutMs: env.requestTimeoutMs,
     });
     logIngestorInfo("submitExtractJob.success", {
       statusCode: response?.status,
@@ -75,30 +72,35 @@ async function submitExtractJobWithFile(fileInput, setting) {
     fileSize: fileInput?.file_size || 0,
     provider: setting?.provider || "",
   });
-  const form = new FormData();
   const filePath = String(fileInput?.file_path || "").trim();
   if (!filePath) {
     throw new Error("Missing file_path for file-based ingestion.");
   }
-  form.append("file", fs.createReadStream(filePath), {
-    filename: fileInput?.file_name || path.basename(filePath),
-    contentType: fileInput?.file_mime || undefined,
-  });
-  form.append("provider", setting.provider);
-  form.append("prompt", setting.prompt);
-  form.append("chunk_size", String(setting.chunk_size));
-  form.append("chunk_overlap", String(setting.chunk_overlap));
-  form.append("embed", String(Boolean(setting.embed)));
-  form.append("vdb_collection", setting.vdb_collection);
-  form.append("callback_url", setting.callback_url || "");
-  form.append("vector_group", setting.vector_group);
-  form.append("knowledge_source", setting.knowledge_source);
-  form.append("knowledge_tags", JSON.stringify(setting.knowledge_tags || []));
-  form.append("force", String(Boolean(setting.force)));
+  const fields = {
+    provider: setting.provider,
+    prompt: setting.prompt,
+    chunk_size: String(setting.chunk_size),
+    chunk_overlap: String(setting.chunk_overlap),
+    embed: String(Boolean(setting.embed)),
+    vdb_collection: setting.vdb_collection,
+    callback_url: setting.callback_url || "",
+    vector_group: setting.vector_group,
+    knowledge_source: setting.knowledge_source,
+    knowledge_tags: JSON.stringify(setting.knowledge_tags || []),
+    force: String(Boolean(setting.force)),
+  };
 
   try {
-    const response = await client.post(env.extractEndpoint, form, {
-      headers: form.getHeaders(),
+    const response = await request({
+      method: "POST",
+      endpoint: env.extractEndpoint,
+      httpPost: createMultipartFields(fields, {
+        fieldName: "file",
+        filePath,
+        fileName: fileInput?.file_name || path.basename(filePath),
+        mimeType: fileInput?.file_mime || undefined,
+      }),
+      timeoutMs: env.requestTimeoutMs,
     });
     logIngestorInfo("submitExtractJobWithFile.success", {
       statusCode: response?.status,
@@ -123,7 +125,11 @@ async function getJobStatus(jobId) {
     jobId,
   });
   try {
-    const response = await client.get(`${env.statusEndpointPrefix}/${jobId}`);
+    const response = await request({
+      method: "GET",
+      endpoint: `${env.statusEndpointPrefix}/${jobId}`,
+      timeoutMs: env.requestTimeoutMs,
+    });
     logIngestorInfo("getJobStatus.success", {
       statusCode: response?.status,
       jobId,
@@ -143,7 +149,11 @@ async function cancelJob(jobId) {
     jobId,
   });
   try {
-    const response = await client.post(`${env.statusEndpointPrefix}/${jobId}/cancel`);
+    const response = await request({
+      method: "POST",
+      endpoint: `${env.statusEndpointPrefix}/${jobId}/cancel`,
+      timeoutMs: env.requestTimeoutMs,
+    });
     logIngestorInfo("cancelJob.success", {
       statusCode: response?.status,
       jobId,
@@ -163,7 +173,12 @@ async function askQna(payload) {
     hasQuestion: Boolean(String(payload?.question || "").trim()),
   });
   try {
-    const response = await client.post(env.qnaEndpoint, payload);
+    const response = await request({
+      method: "POST",
+      endpoint: env.qnaEndpoint,
+      body: payload,
+      timeoutMs: env.requestTimeoutMs,
+    });
     logIngestorInfo("askQna.success", { statusCode: response?.status });
     return response.data;
   } catch (error) {

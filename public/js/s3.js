@@ -81,19 +81,19 @@ async function fetchFiles({ append }) {
   showStatus(`Loaded ${state.files.length} file(s) with clickable ${filters.mode} URLs.`);
 }
 
-function selectedKeys() {
+function selectedFiles() {
   return $(".file-checkbox:checked")
     .map(function mapChecked() {
       const index = Number($(this).data("index"));
-      return state.files[index]?.key;
+      return state.files[index] || null;
     })
     .get()
-    .filter(Boolean);
+    .filter((file) => file && file.url);
 }
 
-async function ingestKeys(keys) {
-  if (!keys.length) {
-    showStatus("No keys selected.");
+async function ingestUrls(urls) {
+  if (!urls.length) {
+    showStatus("No URLs selected.");
     return;
   }
 
@@ -103,13 +103,13 @@ async function ingestKeys(keys) {
     method: "POST",
     contentType: "application/json",
     data: JSON.stringify({
-      keys,
+      urls,
       mode: filters.mode,
       ttlSeconds: filters.ttlSeconds,
     }),
   });
 
-  const count = response.data?.count ?? keys.length;
+  const count = response.data?.count ?? urls.length;
   showStatus(`Queued ${count} file(s) to ingestion.`);
 }
 
@@ -169,20 +169,21 @@ $(document).ready(() => {
   });
 
   $("#ingestSelectedBtn").on("click", async () => {
-    const keys = selectedKeys();
-    showStatus(`Queueing ${keys.length} selected file(s)...`);
+    const files = selectedFiles();
+    const urls = files.map((file) => file.url).filter(Boolean);
+    showStatus(`Queueing ${urls.length} selected file(s)...`);
     try {
-      await ingestKeys(keys);
+      await ingestUrls(urls);
     } catch (error) {
       showStatus(`Ingest selected failed: ${extractError(error)}`);
     }
   });
 
   $("#ingestAllBtn").on("click", async () => {
-    const keys = state.files.map((file) => file.key);
-    showStatus(`Queueing ${keys.length} file(s)...`);
+    const urls = state.files.map((file) => file.url).filter(Boolean);
+    showStatus(`Queueing ${urls.length} file(s)...`);
     try {
-      await ingestKeys(keys);
+      await ingestUrls(urls);
     } catch (error) {
       showStatus(`Ingest all failed: ${extractError(error)}`);
     }

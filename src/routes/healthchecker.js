@@ -1,6 +1,6 @@
 const express = require("express");
-const axios = require("axios");
 const env = require("../config/env");
+const { request } = require("../services/externalHttpClient");
 
 const router = express.Router();
 
@@ -11,12 +11,6 @@ const HEALTH_PATHS = [
   "/api/v1/health/readiness?strict=true",
   "/api/v1/health/vdb",
 ];
-
-const client = axios.create({
-  baseURL: env.externalBaseUrl,
-  timeout: env.requestTimeoutMs,
-  validateStatus: () => true,
-});
 
 function logHealthInfo(action, meta = {}) {
   // eslint-disable-next-line no-console
@@ -36,7 +30,12 @@ function logHealthError(action, error, meta = {}) {
 async function checkOne(path) {
   const startedAt = Date.now();
   try {
-    const response = await client.get(path);
+    const response = await request({
+      method: "GET",
+      endpoint: path,
+      timeoutMs: env.requestTimeoutMs,
+      throwOnHttpError: false,
+    });
     const latencyMs = Date.now() - startedAt;
     const ok = response.status >= 200 && response.status < 300;
     const result = {

@@ -353,17 +353,23 @@ router.post("/ingest", async (req, res, next) => {
     const keys = Array.isArray(req.body?.keys)
       ? req.body.keys.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
+    const providedUrls = Array.isArray(req.body?.urls)
+      ? req.body.urls.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
     const mode = String(req.body?.mode || "presigned").toLowerCase();
     const ttlSeconds = toNumber(req.body?.ttlSeconds, env.s3PresignTtlSeconds);
     logS3Info("POST /ingest.begin", {
       keyCount: keys.length,
+      providedUrlCount: providedUrls.length,
       mode,
       ttlSeconds,
     });
 
-    if (!keys.length) {
-      logS3Info("POST /ingest.invalid_keys");
-      return res.status(400).json({ message: "keys is required as a non-empty array." });
+    if (!keys.length && !providedUrls.length) {
+      logS3Info("POST /ingest.invalid_input");
+      return res.status(400).json({
+        message: "Provide either keys or urls as a non-empty array.",
+      });
     }
     if (!["presigned", "public", "metadata"].includes(mode)) {
       logS3Info("POST /ingest.invalid_mode", { mode });
@@ -372,7 +378,9 @@ router.post("/ingest", async (req, res, next) => {
         .json({ message: "mode must be 'presigned', 'public', or 'metadata'." });
     }
 
-    const urls = await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })));
+    const urls = providedUrls.length
+      ? providedUrls
+      : await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })));
 
     const created = await createQueuedJobsFromUrls(urls);
     const trigger = await startNextQueuedJob();
@@ -380,6 +388,7 @@ router.post("/ingest", async (req, res, next) => {
       mode,
       ttlSeconds,
       keyCount: keys.length,
+      providedUrlCount: providedUrls.length,
       queuedCount: created.length,
       triggerStarted: Boolean(trigger?.started),
       triggerReason: trigger?.reason || "",
@@ -391,6 +400,7 @@ router.post("/ingest", async (req, res, next) => {
         ttlSeconds,
         count: created.length,
         keys,
+        providedUrls,
         urls,
         queue: created,
         trigger,
@@ -399,6 +409,7 @@ router.post("/ingest", async (req, res, next) => {
   } catch (error) {
     logS3Error("POST /ingest", error, {
       keyCount: Array.isArray(req.body?.keys) ? req.body.keys.length : 0,
+      providedUrlCount: Array.isArray(req.body?.urls) ? req.body.urls.length : 0,
       mode: String(req.body?.mode || "presigned").toLowerCase(),
     });
     next(error);

@@ -263,6 +263,8 @@ router.get("/files", async (req, res, next) => {
     const prefix = String(req.query.prefix || "");
     const maxKeys = toNumber(req.query.maxKeys, 1000);
     const dataMode = String(req.query.dataMode || "keys").toLowerCase();
+    const mode = String(req.query.mode || "presigned").toLowerCase();
+    const ttlSeconds = toNumber(req.query.ttlSeconds, env.s3PresignTtlSeconds);
     const continuationToken = req.query.continuationToken
       ? String(req.query.continuationToken)
       : undefined;
@@ -270,6 +272,8 @@ router.get("/files", async (req, res, next) => {
       prefix,
       maxKeys,
       dataMode,
+      mode,
+      ttlSeconds,
       hasContinuationToken: Boolean(continuationToken),
     });
 
@@ -277,24 +281,41 @@ router.get("/files", async (req, res, next) => {
       logS3Info("GET /files.invalid_data_mode", { dataMode });
       return res.status(400).json({ message: "dataMode must be 'keys' or 'full'." });
     }
+    if (!["presigned", "public"].includes(mode)) {
+      logS3Info("GET /files.invalid_mode", { mode });
+      return res.status(400).json({ message: "mode must be 'presigned' or 'public'." });
+    }
 
     const listed = await listObjects({ prefix, maxKeys, continuationToken });
     const fileItems = listed.objects.filter((item) => isFileLikeKey(item.key));
-    const files =
-      dataMode === "keys"
-        ? fileItems.map((item) => ({ key: item.key }))
-        : fileItems.map((item) => ({
+    const files = await Promise.all(
+      fileItems.map(async (item) => {
+        const generatedUrl = await buildUrlForKey({ key: item.key, mode, ttlSeconds });
+        if (dataMode === "keys") {
+          return {
             key: item.key,
-            size: item.size,
-            lastModified: item.lastModified,
-            etag: item.etag,
-            storageClass: item.storageClass,
-          }));
+            mode,
+            url: generatedUrl,
+          };
+        }
+        return {
+          key: item.key,
+          mode,
+          url: generatedUrl,
+          size: item.size,
+          lastModified: item.lastModified,
+          etag: item.etag,
+          storageClass: item.storageClass,
+        };
+      })
+    );
 
     logS3Info("GET /files.success", {
       prefix,
       requestedMaxKeys: maxKeys,
       dataMode,
+      mode,
+      ttlSeconds,
       listedCount: listed.objects.length,
       fileCount: files.length,
       isTruncated: listed.isTruncated,
@@ -305,6 +326,8 @@ router.get("/files", async (req, res, next) => {
       data: {
         prefix,
         dataMode,
+        mode,
+        ttlSeconds,
         count: files.length,
         isTruncated: listed.isTruncated,
         nextContinuationToken: listed.nextContinuationToken,
@@ -315,6 +338,7 @@ router.get("/files", async (req, res, next) => {
     logS3Error("GET /files", error, {
       prefix: String(req.query.prefix || ""),
       dataMode: String(req.query.dataMode || "keys").toLowerCase(),
+      mode: String(req.query.mode || "presigned").toLowerCase(),
     });
     next(error);
   }

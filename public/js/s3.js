@@ -26,13 +26,16 @@ function getFilters() {
 }
 
 function rowTemplate(file, index) {
-  const dataCell =
-    file.url ||
-    (file.size !== undefined
+  const metaText =
+    file.size !== undefined
       ? `size=${file.size}, lastModified=${file.lastModified || "-"}, etag=${file.etag || "-"}, storageClass=${
           file.storageClass || "-"
         }`
-      : "-");
+      : "";
+  const urlCell = file.url
+    ? `<a href="${file.url}" target="_blank" rel="noopener noreferrer">${file.url}</a>`
+    : "-";
+  const dataCell = metaText ? `${urlCell}<br /><small>${metaText}</small>` : urlCell;
   return `
     <tr>
       <td>
@@ -56,6 +59,8 @@ async function fetchFiles({ append }) {
     prefix: filters.prefix,
     maxKeys: filters.maxKeys,
     dataMode: filters.dataMode,
+    mode: filters.mode,
+    ttlSeconds: filters.ttlSeconds,
   };
   if (append && state.nextContinuationToken) {
     query.continuationToken = state.nextContinuationToken;
@@ -73,7 +78,7 @@ async function fetchFiles({ append }) {
   state.nextContinuationToken = payload.nextContinuationToken || null;
   state.hasMore = Boolean(payload.isTruncated && payload.nextContinuationToken);
   renderFiles();
-  showStatus(`Loaded ${state.files.length} file(s) in ${filters.dataMode} mode.`);
+  showStatus(`Loaded ${state.files.length} file(s) with clickable ${filters.mode} URLs.`);
 }
 
 function selectedKeys() {

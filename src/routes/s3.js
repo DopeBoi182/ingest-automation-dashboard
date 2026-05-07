@@ -38,6 +38,34 @@ function toNumber(value, defaultValue) {
   return Number.isNaN(parsed) ? defaultValue : parsed;
 }
 
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  const lowered = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(lowered)) return true;
+  if (["false", "0", "no", "n", "off"].includes(lowered)) return false;
+  return fallback;
+}
+
+function normalizeIngestUrlItems(urlsInput, fallbackOcrInput) {
+  const fallbackOcr = toBoolean(fallbackOcrInput, false);
+  if (!Array.isArray(urlsInput)) return [];
+  return urlsInput
+    .map((entry) => {
+      if (entry && typeof entry === "object") {
+        return {
+          url: String(entry.url || entry.file_url || "").trim(),
+          vlm_ocr: toBoolean(entry.vlm_ocr, fallbackOcr),
+        };
+      }
+      return {
+        url: String(entry || "").trim(),
+        vlm_ocr: fallbackOcr,
+      };
+    })
+    .filter((entry) => Boolean(entry.url));
+}
+
 function isFileLikeKey(key) {
   const normalized = String(key || "").trim();
   if (!normalized) return false;
@@ -84,7 +112,7 @@ async function startQueueItem(item, setting) {
     fileUrl: item?.file_url || "",
   });
   try {
-    const remote = await submitExtractJob(item.file_url, setting);
+    const remote = await submitExtractJob(item.file_url, setting, { vlm_ocr: item.vlm_ocr });
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
     const updated = await updateJobById(item._id, {
       ...patch,
@@ -353,19 +381,17 @@ router.post("/ingest", async (req, res, next) => {
     const keys = Array.isArray(req.body?.keys)
       ? req.body.keys.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
-    const providedUrls = Array.isArray(req.body?.urls)
-      ? req.body.urls.map((x) => String(x || "").trim()).filter(Boolean)
-      : [];
+    const providedUrlItems = normalizeIngestUrlItems(req.body?.urls, req.body?.vlm_ocr);
     const mode = String(req.body?.mode || "presigned").toLowerCase();
     const ttlSeconds = toNumber(req.body?.ttlSeconds, env.s3PresignTtlSeconds);
     logS3Info("POST /ingest.begin", {
       keyCount: keys.length,
-      providedUrlCount: providedUrls.length,
+      providedUrlCount: providedUrlItems.length,
       mode,
       ttlSeconds,
     });
 
-    if (!keys.length && !providedUrls.length) {
+    if (!keys.length && !providedUrlItems.length) {
       logS3Info("POST /ingest.invalid_input");
       return res.status(400).json({
         message: "Provide either keys or urls as a non-empty array.",
@@ -378,17 +404,20 @@ router.post("/ingest", async (req, res, next) => {
         .json({ message: "mode must be 'presigned', 'public', or 'metadata'." });
     }
 
-    const urls = providedUrls.length
-      ? providedUrls
-      : await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })));
+    const urlItems = providedUrlItems.length
+      ? providedUrlItems
+      : (await Promise.all(keys.map((key) => buildUrlForKey({ key, mode, ttlSeconds })))).map((url) => ({
+          url,
+          vlm_ocr: false,
+        }));
 
-    const created = await createQueuedJobsFromUrls(urls);
+    const created = await createQueuedJobsFromUrls(urlItems);
     const trigger = await startNextQueuedJob();
     logS3Info("POST /ingest.success", {
       mode,
       ttlSeconds,
       keyCount: keys.length,
-      providedUrlCount: providedUrls.length,
+      providedUrlCount: providedUrlItems.length,
       queuedCount: created.length,
       triggerStarted: Boolean(trigger?.started),
       triggerReason: trigger?.reason || "",
@@ -400,8 +429,8 @@ router.post("/ingest", async (req, res, next) => {
         ttlSeconds,
         count: created.length,
         keys,
-        providedUrls,
-        urls,
+        providedUrls: providedUrlItems.map((item) => item.url),
+        urls: urlItems.map((item) => item.url),
         queue: created,
         trigger,
       },

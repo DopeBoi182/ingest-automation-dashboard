@@ -17,13 +17,24 @@ function logIngestorError(action, error, meta = {}) {
   });
 }
 
-async function submitExtractJob(fileUrl, setting) {
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  const lowered = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(lowered)) return true;
+  if (["false", "0", "no", "n", "off"].includes(lowered)) return false;
+  return fallback;
+}
+
+async function submitExtractJob(fileUrl, setting, options = {}) {
+  const vlmOcr = toBoolean(options?.vlm_ocr, false);
   logIngestorInfo("submitExtractJob.begin", {
     externalBaseUrl: env.externalBaseUrl,
     endpoint: env.extractEndpoint,
     hasFileUrl: Boolean(String(fileUrl || "").trim()),
     provider: setting?.provider || "",
     knowledgeSource: setting?.knowledge_source || "",
+    vlmOcr,
   });
   const fields = {
     url: fileUrl,
@@ -38,6 +49,7 @@ async function submitExtractJob(fileUrl, setting) {
     knowledge_source: setting.knowledge_source,
     knowledge_tags: JSON.stringify(setting.knowledge_tags || []),
     force: String(Boolean(setting.force)),
+    vlm_ocr: String(vlmOcr),
   };
 
   try {
@@ -62,7 +74,8 @@ async function submitExtractJob(fileUrl, setting) {
   }
 }
 
-async function submitExtractJobWithFile(fileInput, setting) {
+async function submitExtractJobWithFile(fileInput, setting, options = {}) {
+  const vlmOcr = toBoolean(options?.vlm_ocr, false);
   logIngestorInfo("submitExtractJobWithFile.begin", {
     externalBaseUrl: env.externalBaseUrl,
     endpoint: env.extractEndpoint,
@@ -71,6 +84,7 @@ async function submitExtractJobWithFile(fileInput, setting) {
     fileMime: fileInput?.file_mime || "",
     fileSize: fileInput?.file_size || 0,
     provider: setting?.provider || "",
+    vlmOcr,
   });
   const filePath = String(fileInput?.file_path || "").trim();
   if (!filePath) {
@@ -88,6 +102,7 @@ async function submitExtractJobWithFile(fileInput, setting) {
     knowledge_source: setting.knowledge_source,
     knowledge_tags: JSON.stringify(setting.knowledge_tags || []),
     force: String(Boolean(setting.force)),
+    vlm_ocr: String(vlmOcr),
   };
 
   try {

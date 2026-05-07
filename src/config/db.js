@@ -2,7 +2,7 @@ const { readData, getDataFilePath } = require("../storage/dataStore");
 
 async function connectDb() {
   await readData();
-  return { type: "json", file: getDataFilePath() };
+  return { type: "lowdb", file: getDataFilePath() };
 }
 
 module.exports = { connectDb };

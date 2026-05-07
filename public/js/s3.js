@@ -41,6 +41,12 @@ function rowTemplate(file, index) {
       <td>
         <input type="checkbox" class="file-checkbox" data-index="${index}" />
       </td>
+      <td>
+        <select class="file-ocr-select" data-index="${index}">
+          <option value="false" selected>false</option>
+          <option value="true">true</option>
+        </select>
+      </td>
       <td>${file.key}</td>
       <td class="url-cell">${dataCell}</td>
     </tr>
@@ -49,7 +55,7 @@ function rowTemplate(file, index) {
 
 function renderFiles() {
   const rows = state.files.map((file, index) => rowTemplate(file, index)).join("");
-  $("#filesBody").html(rows || `<tr><td colspan="3">No files found.</td></tr>`);
+  $("#filesBody").html(rows || `<tr><td colspan="4">No files found.</td></tr>`);
   $("#loadMoreBtn").prop("disabled", !state.hasMore);
 }
 
@@ -85,14 +91,26 @@ function selectedFiles() {
   return $(".file-checkbox:checked")
     .map(function mapChecked() {
       const index = Number($(this).data("index"));
-      return state.files[index] || null;
+      const file = state.files[index] || null;
+      if (!file) return null;
+      const vlmOcr = $(`.file-ocr-select[data-index="${index}"]`).val() === "true";
+      return { ...file, vlm_ocr: vlmOcr };
     })
     .get()
     .filter((file) => file && file.url);
 }
 
-async function ingestUrls(urls) {
-  if (!urls.length) {
+function allFilesWithOcr() {
+  return state.files
+    .map((file, index) => ({
+      ...file,
+      vlm_ocr: $(`.file-ocr-select[data-index="${index}"]`).val() === "true",
+    }))
+    .filter((file) => file && file.url);
+}
+
+async function ingestUrls(urlItems) {
+  if (!urlItems.length) {
     showStatus("No URLs selected.");
     return;
   }
@@ -103,13 +121,13 @@ async function ingestUrls(urls) {
     method: "POST",
     contentType: "application/json",
     data: JSON.stringify({
-      urls,
+      urls: urlItems.map((item) => ({ url: item.url, vlm_ocr: Boolean(item.vlm_ocr) })),
       mode: filters.mode,
       ttlSeconds: filters.ttlSeconds,
     }),
   });
 
-  const count = response.data?.count ?? urls.length;
+  const count = response.data?.count ?? urlItems.length;
   showStatus(`Queued ${count} file(s) to ingestion.`);
 }
 
@@ -170,20 +188,19 @@ $(document).ready(() => {
 
   $("#ingestSelectedBtn").on("click", async () => {
     const files = selectedFiles();
-    const urls = files.map((file) => file.url).filter(Boolean);
-    showStatus(`Queueing ${urls.length} selected file(s)...`);
+    showStatus(`Queueing ${files.length} selected file(s)...`);
     try {
-      await ingestUrls(urls);
+      await ingestUrls(files);
     } catch (error) {
       showStatus(`Ingest selected failed: ${extractError(error)}`);
     }
   });
 
   $("#ingestAllBtn").on("click", async () => {
-    const urls = state.files.map((file) => file.url).filter(Boolean);
-    showStatus(`Queueing ${urls.length} file(s)...`);
+    const files = allFilesWithOcr();
+    showStatus(`Queueing ${files.length} file(s)...`);
     try {
-      await ingestUrls(urls);
+      await ingestUrls(files);
     } catch (error) {
       showStatus(`Ingest all failed: ${extractError(error)}`);
     }

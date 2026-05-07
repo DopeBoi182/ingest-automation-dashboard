@@ -47,11 +47,65 @@ function logJobsError(action, error, meta = {}) {
 }
 
 function parseUrlInput(urls) {
-  if (Array.isArray(urls)) return urls.map((x) => String(x).trim()).filter(Boolean);
   return String(urls || "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  const lowered = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(lowered)) return true;
+  if (["false", "0", "no", "n", "off"].includes(lowered)) return false;
+  return fallback;
+}
+
+function parseUrlQueueItems(urlsInput, fallbackOcrInput) {
+  const fallbackOcr = toBoolean(fallbackOcrInput, false);
+  if (Array.isArray(urlsInput)) {
+    return urlsInput
+      .map((item) => {
+        if (item && typeof item === "object") {
+          const url = String(item.url || item.file_url || "").trim();
+          return {
+            url,
+            vlm_ocr: toBoolean(item.vlm_ocr, fallbackOcr),
+          };
+        }
+        return {
+          url: String(item || "").trim(),
+          vlm_ocr: fallbackOcr,
+        };
+      })
+      .filter((item) => Boolean(item.url));
+  }
+
+  return parseUrlInput(urlsInput).map((url) => ({ url, vlm_ocr: fallbackOcr }));
+}
+
+function parseFileOcrValues(rawValue, expectedLength) {
+  if (Array.isArray(rawValue)) {
+    return rawValue.map((value) => toBoolean(value, false));
+  }
+
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((value) => toBoolean(value, false));
+        }
+      } catch {
+        // no-op; treat as scalar below
+      }
+    }
+    return Array.from({ length: expectedLength }, () => toBoolean(trimmed, false));
+  }
+
+  return Array.from({ length: expectedLength }, () => false);
 }
 
 function fromUnixSeconds(value) {
@@ -106,12 +160,13 @@ async function cleanupUploadedFiles(files) {
   );
 }
 
-function normalizeUploadedFiles(files) {
-  return files.map((file) => ({
+function normalizeUploadedFiles(files, fileOcrValues = []) {
+  return files.map((file, index) => ({
     file_name: file.originalname || file.filename,
     file_path: file.path,
     file_mime: file.mimetype || "",
     file_size: file.size || 0,
+    vlm_ocr: toBoolean(fileOcrValues[index], false),
   }));
 }
 
@@ -124,8 +179,8 @@ async function startQueueItem(item, setting) {
   });
   try {
     const remote = isFileInput
-      ? await submitExtractJobWithFile(item, setting)
-      : await submitExtractJob(item.file_url, setting);
+      ? await submitExtractJobWithFile(item, setting, { vlm_ocr: item.vlm_ocr })
+      : await submitExtractJob(item.file_url, setting, { vlm_ocr: item.vlm_ocr });
     const patch = mapRemoteToJobPatch(item.file_url, remote, "processing");
     const saved = await updateJobById(item._id, {
       ...patch,
@@ -288,13 +343,13 @@ async function refreshJobById(job) {
 
 router.post("/queue", async (req, res, next) => {
   try {
-    const urls = parseUrlInput(req.body?.urls);
-    logJobsInfo("POST /queue.begin", { urlCount: urls.length });
-    if (!urls.length) {
+    const urlItems = parseUrlQueueItems(req.body?.urls, req.body?.vlm_ocr);
+    logJobsInfo("POST /queue.begin", { urlCount: urlItems.length });
+    if (!urlItems.length) {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
-    const created = await createQueuedJobsFromUrls(urls);
+    const created = await createQueuedJobsFromUrls(urlItems);
     const trigger = await startNextQueuedJob();
     logJobsInfo("POST /queue.success", {
       queuedCount: created.length,
@@ -311,16 +366,18 @@ router.post("/queue", async (req, res, next) => {
 router.post("/queue/files", upload.array("file"), async (req, res, next) => {
   try {
     const files = Array.isArray(req.files) ? req.files : [];
+    const fileOcrValues = parseFileOcrValues(req.body?.vlm_ocr, files.length);
     logJobsInfo("POST /queue/files.begin", {
       fileCount: files.length,
       fileNames: files.map((file) => file.originalname || file.filename),
       uploadDir,
+      ocrValuesCount: fileOcrValues.length,
     });
     if (!files.length) {
       return res.status(400).json({ message: "file is required as a non-empty upload field." });
     }
 
-    const payload = normalizeUploadedFiles(files);
+    const payload = normalizeUploadedFiles(files, fileOcrValues);
 
     const created = await createQueuedJobsFromFiles(payload);
     const trigger = await startNextQueuedJob();
@@ -343,15 +400,17 @@ router.post("/queue/files", upload.array("file"), async (req, res, next) => {
 router.post("/ingest/files", upload.array("file"), async (req, res, next) => {
   try {
     const files = Array.isArray(req.files) ? req.files : [];
+    const fileOcrValues = parseFileOcrValues(req.body?.vlm_ocr, files.length);
     logJobsInfo("POST /ingest/files.begin", {
       fileCount: files.length,
       fileNames: files.map((file) => file.originalname || file.filename),
       uploadDir,
+      ocrValuesCount: fileOcrValues.length,
     });
     if (!files.length) {
       return res.status(400).json({ message: "file is required as a non-empty upload field." });
     }
-    const payload = normalizeUploadedFiles(files);
+    const payload = normalizeUploadedFiles(files, fileOcrValues);
     const created = await createQueuedJobsFromFiles(payload);
     const trigger = await startNextQueuedJob();
     logJobsInfo("POST /ingest/files.success", {
@@ -372,13 +431,13 @@ router.post("/ingest/files", upload.array("file"), async (req, res, next) => {
 
 router.post("/ingest", async (req, res, next) => {
   try {
-    const urls = parseUrlInput(req.body?.urls);
-    logJobsInfo("POST /ingest.begin", { urlCount: urls.length });
-    if (!urls.length) {
+    const urlItems = parseUrlQueueItems(req.body?.urls, req.body?.vlm_ocr);
+    logJobsInfo("POST /ingest.begin", { urlCount: urlItems.length });
+    if (!urlItems.length) {
       return res.status(400).json({ message: "urls is required (comma-separated)." });
     }
 
-    const created = await createQueuedJobsFromUrls(urls);
+    const created = await createQueuedJobsFromUrls(urlItems);
     const trigger = await startNextQueuedJob();
     logJobsInfo("POST /ingest.success", {
       queuedCount: created.length,

@@ -10,6 +10,36 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  const lowered = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(lowered)) return true;
+  if (["false", "0", "no", "n", "off"].includes(lowered)) return false;
+  return fallback;
+}
+
+function normalizeStoredJob(job) {
+  return {
+    ...job,
+    vlm_ocr: toBoolean(job?.vlm_ocr, false),
+  };
+}
+
+function normalizeUrlQueueInput(entry) {
+  if (entry && typeof entry === "object") {
+    const url = String(entry.url || entry.file_url || "").trim();
+    return {
+      url,
+      vlm_ocr: toBoolean(entry.vlm_ocr, false),
+    };
+  }
+  return {
+    url: String(entry || "").trim(),
+    vlm_ocr: false,
+  };
+}
+
 function withTimestamps(job, patch) {
   const next = { ...job, ...patch, updatedAt: nowIso() };
   for (const [key, value] of Object.entries(next)) {
@@ -36,17 +66,20 @@ function sortProcessing(a, b) {
 
 async function getAllJobs() {
   const data = await readData();
-  return data.jobs.sort((a, b) => toComparableTime(b.createdAt) - toComparableTime(a.createdAt));
+  return data.jobs
+    .map(normalizeStoredJob)
+    .sort((a, b) => toComparableTime(b.createdAt) - toComparableTime(a.createdAt));
 }
 
 async function getQueuedJobs() {
   const data = await readData();
-  return data.jobs.filter((x) => x.queue_status === "queued").sort(sortQueued);
+  return data.jobs.map(normalizeStoredJob).filter((x) => x.queue_status === "queued").sort(sortQueued);
 }
 
 async function getFinishedJobs() {
   const data = await readData();
   return data.jobs
+    .map(normalizeStoredJob)
     .filter((x) => ["completed", "failed"].includes(x.queue_status))
     .sort((a, b) => {
       const fa = toComparableTime(a.finished_at);
@@ -59,23 +92,29 @@ async function getFinishedJobs() {
 async function getJobsWithRemoteId() {
   const data = await readData();
   return data.jobs
+    .map(normalizeStoredJob)
     .filter((x) => Boolean(x.job_id))
     .sort((a, b) => toComparableTime(a.createdAt) - toComparableTime(b.createdAt));
 }
 
 async function getByJobId(jobId) {
   const data = await readData();
-  return data.jobs.find((x) => x.job_id === jobId) || null;
+  const job = data.jobs.find((x) => x.job_id === jobId) || null;
+  return job ? normalizeStoredJob(job) : null;
 }
 
 async function getQueuedById(id) {
   const data = await readData();
-  return data.jobs.find((x) => x._id === id && x.queue_status === "queued") || null;
+  const job = data.jobs.find((x) => x._id === id && x.queue_status === "queued") || null;
+  return job ? normalizeStoredJob(job) : null;
 }
 
 async function getActiveProcessingJob() {
   const data = await readData();
-  const processing = data.jobs.filter((x) => x.queue_status === "processing").sort(sortProcessing);
+  const processing = data.jobs
+    .map(normalizeStoredJob)
+    .filter((x) => x.queue_status === "processing")
+    .sort(sortProcessing);
   return processing[0] || null;
 }
 
@@ -92,16 +131,18 @@ async function createQueuedJobsFromUrls(urls) {
       .reduce((acc, n) => Math.max(acc, n), 0);
     let nextOrder = maxOrder;
     const timestamp = nowIso();
-    const created = urls.map((url) => {
+    const created = urls.map((entry) => {
+      const normalized = normalizeUrlQueueInput(entry);
       nextOrder += 1;
       return {
         _id: generateId(),
-        file_url: url,
+        file_url: normalized.url,
         input_type: "url",
         file_name: "",
         file_path: "",
         file_mime: "",
         file_size: 0,
+        vlm_ocr: normalized.vlm_ocr,
         job_id: null,
         status: "queued",
         stage: "queued",
@@ -142,6 +183,7 @@ async function createQueuedJobsFromFiles(files) {
         file_path: String(file.file_path || "").trim(),
         file_mime: String(file.file_mime || "").trim(),
         file_size: Number(file.file_size) || 0,
+        vlm_ocr: toBoolean(file.vlm_ocr, false),
         job_id: null,
         status: "queued",
         stage: "queued",

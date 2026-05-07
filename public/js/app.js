@@ -31,6 +31,61 @@ function renderJobSource(job) {
   return job?.file_url || "-";
 }
 
+function ocrSelectTemplate(cssClass, index, selectedValue) {
+  const isTrue = String(selectedValue) === "true";
+  return `
+    <select class="${cssClass}" data-index="${index}">
+      <option value="false" ${isTrue ? "" : "selected"}>false</option>
+      <option value="true" ${isTrue ? "selected" : ""}>true</option>
+    </select>
+  `;
+}
+
+function parseUrlItems(rawInput) {
+  return String(rawInput || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function renderUrlOcrRows() {
+  const urls = parseUrlItems($("#urlInput").val());
+  const previousByIndex = {};
+  $(".url-ocr-select").each(function eachSelect() {
+    previousByIndex[Number($(this).data("index"))] = $(this).val() === "true";
+  });
+
+  if (!urls.length) {
+    $("#urlOcrBody").html(`<tr><td colspan="2">No URL rows yet. Type URLs above.</td></tr>`);
+    return;
+  }
+
+  const rows = urls
+    .map((url, index) => {
+      const selected = previousByIndex[index] ? "true" : "false";
+      return `
+        <tr>
+          <td class="url-cell">${url}</td>
+          <td>${ocrSelectTemplate("url-ocr-select", index, selected)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  $("#urlOcrBody").html(rows);
+}
+
+function collectUrlItemsWithOcr() {
+  const urls = parseUrlItems($("#urlInput").val());
+  return urls.map((url, index) => {
+    const selector = `.url-ocr-select[data-index="${index}"]`;
+    const value = $(selector).val();
+    return {
+      url,
+      vlm_ocr: value === "true",
+    };
+  });
+}
+
 function processRowTemplate(job) {
   const actionCell = job.job_id
     ? `<button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>`
@@ -166,24 +221,25 @@ async function saveSettings(event) {
 
 async function ingestUrls(event) {
   event.preventDefault();
-  const urls = $("#urlInput").val();
-  if (!urls.trim()) {
+  const urlItems = collectUrlItemsWithOcr();
+  if (!urlItems.length) {
     showStatus("Please enter URL list.");
     return;
   }
 
   $("#submitIngestBtn").prop("disabled", true);
   showStatus("Adding URLs to queue and auto-starting first item...");
-  logFeInfo("ingestUrls.begin", { urlCount: parseUrlInputCount(urls) });
+  logFeInfo("ingestUrls.begin", { urlCount: urlItems.length });
 
   try {
     await $.ajax({
       url: "./api/jobs/queue",
       method: "POST",
       contentType: "application/json",
-      data: JSON.stringify({ urls }),
+      data: JSON.stringify({ urls: urlItems }),
     });
     $("#urlInput").val("");
+    renderUrlOcrRows();
     await loadQueueViews();
     showStatus("URLs queued. First item auto-started if processor was idle.");
     logFeInfo("ingestUrls.success");
@@ -275,22 +331,34 @@ async function clearQueue() {
   logFeInfo("clearQueue.success", { deletedCount });
 }
 
-function parseUrlInputCount(urls) {
-  return String(urls || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean).length;
-}
-
 function updateSelectedFilesText() {
   const input = $("#filesInput").get(0);
   const files = input?.files ? Array.from(input.files) : [];
   if (!files.length) {
     $("#filesSelectedText").text("No files selected.");
+    $("#filesOcrBody").html(`<tr><td colspan="2">No files selected.</td></tr>`);
     return;
   }
   const names = files.map((file) => file.name).join(", ");
   $("#filesSelectedText").text(`${files.length} file(s): ${names}`);
+  const rows = files
+    .map(
+      (file, index) => `
+      <tr>
+        <td>${file.name}</td>
+        <td>${ocrSelectTemplate("file-ocr-select", index, "false")}</td>
+      </tr>
+    `
+    )
+    .join("");
+  $("#filesOcrBody").html(rows);
+}
+
+function collectFileOcrValues(fileCount) {
+  return Array.from({ length: fileCount }, (_unused, index) => {
+    const selector = `.file-ocr-select[data-index="${index}"]`;
+    return $(selector).val() === "true";
+  });
 }
 
 async function ingestFiles(event) {
@@ -303,10 +371,13 @@ async function ingestFiles(event) {
   }
 
   const formData = new FormData();
+  const ocrValues = collectFileOcrValues(files.length);
   files.forEach((file) => formData.append("file", file));
+  formData.append("vlm_ocr", JSON.stringify(ocrValues));
   logFeInfo("ingestFiles.begin", {
     fileCount: files.length,
     fileNames: files.map((file) => file.name),
+    ocrTrueCount: ocrValues.filter(Boolean).length,
   });
 
   $("#submitFilesBtn").prop("disabled", true);
@@ -521,6 +592,7 @@ $(document).ready(async () => {
   await bootstrap();
   setupTabs();
   setupAutoTick();
+  renderUrlOcrRows();
 
   $("#settingsForm").on("submit", async (event) => {
     try {
@@ -536,6 +608,10 @@ $(document).ready(async () => {
     } catch (error) {
       showStatus(`Enqueue failed: ${extractError(error)}`);
     }
+  });
+
+  $("#urlInput").on("input", () => {
+    renderUrlOcrRows();
   });
 
   $("#filesForm").on("submit", async (event) => {

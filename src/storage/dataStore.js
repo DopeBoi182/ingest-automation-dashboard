@@ -6,7 +6,9 @@ const os = require("os");
 const env = require("../config/env");
 
 let dataFilePath = env.dataFile;
-let dataFileReadyPromise = null;
+let db = null;
+let dbReadyPromise = null;
+let lowdbModulesPromise = null;
 
 const defaultData = {
   jobs: [],
@@ -24,13 +26,33 @@ function generateId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function ensureDataFile() {
-  const dir = path.dirname(dataFilePath);
+function normalizeDataShape(raw) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  return {
+    jobs: Array.isArray(data.jobs) ? data.jobs : [],
+    setting: data.setting || null,
+  };
+}
+
+async function loadLowdbModules() {
+  if (!lowdbModulesPromise) {
+    lowdbModulesPromise = Promise.all([import("lowdb"), import("lowdb/node")]).then(
+      ([core, node]) => ({
+        Low: core.Low,
+        JSONFile: node.JSONFile,
+      })
+    );
+  }
+  return lowdbModulesPromise;
+}
+
+async function ensureDataFile(filePath) {
+  const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
   try {
-    await fs.access(dataFilePath, fsConstants.R_OK | fsConstants.W_OK);
+    await fs.access(filePath, fsConstants.R_OK | fsConstants.W_OK);
   } catch {
-    await fs.writeFile(dataFilePath, JSON.stringify(defaultData, null, 2), "utf8");
+    await fs.writeFile(filePath, JSON.stringify(defaultData, null, 2), "utf8");
   }
 }
 
@@ -38,27 +60,14 @@ function isPermissionError(error) {
   return ["EACCES", "EPERM", "EROFS"].includes(error?.code);
 }
 
-async function resolveDataFilePath() {
-  if (!dataFileReadyPromise) {
-    dataFileReadyPromise = (async () => {
-      try {
-        await ensureDataFile();
-      } catch (error) {
-        if (!isPermissionError(error)) throw error;
-
-        const fallbackPath = path.join(os.tmpdir(), "automation_ai_ingestion", "storage.json");
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[DataStore] Cannot access DATA_FILE at "${dataFilePath}" (${error.code}). Falling back to "${fallbackPath}".`
-        );
-        dataFilePath = fallbackPath;
-        await ensureDataFile();
-      }
-    })();
-  }
-
-  await dataFileReadyPromise;
-  return dataFilePath;
+async function createDb(filePath) {
+  const { Low, JSONFile } = await loadLowdbModules();
+  const adapter = new JSONFile(filePath);
+  const instance = new Low(adapter, deepClone(defaultData));
+  await instance.read();
+  instance.data = normalizeDataShape(instance.data);
+  await instance.write();
+  return instance;
 }
 
 async function switchToFallbackPath(error) {
@@ -70,44 +79,56 @@ async function switchToFallbackPath(error) {
     `[DataStore] Cannot access DATA_FILE at "${dataFilePath}" (${error.code}). Falling back to "${fallbackPath}".`
   );
   dataFilePath = fallbackPath;
-  dataFileReadyPromise = null;
-  await resolveDataFilePath();
+  db = null;
+  dbReadyPromise = null;
+  await ensureDataFile(dataFilePath);
+}
+
+async function resolveDb() {
+  if (!dbReadyPromise) {
+    dbReadyPromise = (async () => {
+      try {
+        await ensureDataFile(dataFilePath);
+        db = await createDb(dataFilePath);
+      } catch (error) {
+        if (!isPermissionError(error)) throw error;
+        await switchToFallbackPath(error);
+        db = await createDb(dataFilePath);
+      }
+      return db;
+    })();
+  }
+  return dbReadyPromise;
 }
 
 async function readData() {
-  const activeDataFilePath = await resolveDataFilePath();
-  let raw;
+  let activeDb;
   try {
-    raw = await fs.readFile(activeDataFilePath, "utf8");
+    activeDb = await resolveDb();
+    await activeDb.read();
   } catch (error) {
     if (!isPermissionError(error)) throw error;
     await switchToFallbackPath(error);
-    raw = await fs.readFile(await resolveDataFilePath(), "utf8");
+    activeDb = await resolveDb();
+    await activeDb.read();
   }
-  if (!raw.trim()) return deepClone(defaultData);
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
-      setting: parsed.setting || null,
-    };
-  } catch {
-    return deepClone(defaultData);
-  }
+  activeDb.data = normalizeDataShape(activeDb.data);
+  return deepClone(activeDb.data);
 }
 
 async function writeData(nextData) {
-  const activeDataFilePath = await resolveDataFilePath();
-  const payload = {
-    jobs: Array.isArray(nextData.jobs) ? nextData.jobs : [],
-    setting: nextData.setting || null,
-  };
+  const payload = normalizeDataShape(nextData);
+  let activeDb;
   try {
-    await fs.writeFile(activeDataFilePath, JSON.stringify(payload, null, 2), "utf8");
+    activeDb = await resolveDb();
+    activeDb.data = payload;
+    await activeDb.write();
   } catch (error) {
     if (!isPermissionError(error)) throw error;
     await switchToFallbackPath(error);
-    await fs.writeFile(await resolveDataFilePath(), JSON.stringify(payload, null, 2), "utf8");
+    activeDb = await resolveDb();
+    activeDb.data = payload;
+    await activeDb.write();
   }
 }
 

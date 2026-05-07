@@ -9,6 +9,20 @@ function extractError(error) {
   return error.message || "Unknown error";
 }
 
+async function getJsonNoCache(url, data) {
+  return $.ajax({
+    url,
+    method: "GET",
+    data,
+    cache: false,
+    dataType: "json",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 const state = {
   files: [],
   nextContinuationToken: null,
@@ -72,7 +86,7 @@ async function fetchFiles({ append }) {
     query.continuationToken = state.nextContinuationToken;
   }
 
-  const response = await $.getJSON("./api/s3/files", query);
+  const response = await getJsonNoCache("./api/s3/files", query);
   const payload = response.data || {};
 
   if (!append) {
@@ -132,7 +146,7 @@ async function ingestUrls(urlItems) {
 }
 
 async function checkHealth() {
-  const response = await $.getJSON("./api/s3/health/live");
+  const response = await getJsonNoCache("./api/s3/health/live");
   const data = response.data || {};
   showStatus(
     `S3 OK. Bucket: ${data.bucket || "-"}, Endpoint: ${data.endpoint || "-"}, TLS: ${

@@ -17,6 +17,20 @@ function logFeError(action, error, meta = {}) {
   });
 }
 
+async function getJsonNoCache(url, data) {
+  return $.ajax({
+    url,
+    method: "GET",
+    data,
+    cache: false,
+    dataType: "json",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 function toLocalDateString(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -139,7 +153,7 @@ function finishedRowTemplate(job) {
 
 async function loadSettings() {
   logFeInfo("loadSettings.begin");
-  const response = await $.getJSON("./api/settings");
+  const response = await getJsonNoCache("./api/settings");
   const s = response.data || {};
   $("#knowledgeSource").val(s.knowledge_source || "");
   $("#knowledgeTags").val((s.knowledge_tags || []).join(","));
@@ -159,7 +173,7 @@ async function loadSettings() {
 
 async function loadProcess() {
   logFeInfo("loadProcess.begin");
-  const response = await $.getJSON("./api/jobs/process");
+  const response = await getJsonNoCache("./api/jobs/process");
   const job = response.data;
   if (!job) {
     logFeInfo("loadProcess.empty");
@@ -172,7 +186,7 @@ async function loadProcess() {
 
 async function loadQueue() {
   logFeInfo("loadQueue.begin");
-  const response = await $.getJSON("./api/jobs/queue");
+  const response = await getJsonNoCache("./api/jobs/queue");
   const rows = (response.data || []).map(queueRowTemplate).join("");
   $("#queueBody").html(rows || `<tr><td colspan="4">Queue is empty.</td></tr>`);
   logFeInfo("loadQueue.success", { queueCount: (response.data || []).length });
@@ -180,7 +194,7 @@ async function loadQueue() {
 
 async function loadFinished() {
   logFeInfo("loadFinished.begin");
-  const response = await $.getJSON("./api/jobs/finished");
+  const response = await getJsonNoCache("./api/jobs/finished");
   const rows = (response.data || []).map(finishedRowTemplate).join("");
   $("#finishedBody").html(rows || `<tr><td colspan="7">No completed or failed jobs yet.</td></tr>`);
   logFeInfo("loadFinished.success", { finishedCount: (response.data || []).length });
@@ -486,7 +500,7 @@ async function runHealthchecker() {
   showStatus("Running healthchecker...");
   logFeInfo("healthchecker.begin");
   try {
-    const response = await $.getJSON("./api/healthchecker");
+    const response = await getJsonNoCache("./api/healthchecker");
     const data = response.data || {};
     $("#healthcheckerOutput").text(renderHealthcheckerResult(data));
     const summary = data.summary || {};
@@ -512,7 +526,7 @@ async function runS3ConnectivityCheck() {
   showStatus("Running S3 connectivity check...");
   logFeInfo("s3Connectivity.begin");
   try {
-    const response = await $.getJSON("./api/s3/health/live");
+    const response = await getJsonNoCache("./api/s3/health/live");
     const data = response.data || {};
     $("#s3ConnectivityOutput").text(renderS3ConnectivityResult(data));
     showStatus(

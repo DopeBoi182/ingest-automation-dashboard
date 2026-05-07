@@ -440,9 +440,29 @@ function setActiveTab(tabName) {
   });
 }
 
+async function refreshTabData(tabName) {
+  if (tabName === "process") {
+    await loadProcess();
+    return;
+  }
+  if (tabName === "queue") {
+    await loadQueue();
+    return;
+  }
+  if (tabName === "finished") {
+    await loadFinished();
+  }
+}
+
 function setupTabs() {
-  $(".tab-btn").on("click", function onTabClick() {
-    setActiveTab($(this).data("tab"));
+  $(".tab-btn").on("click", async function onTabClick() {
+    const tabName = $(this).data("tab");
+    setActiveTab(tabName);
+    try {
+      await refreshTabData(tabName);
+    } catch (error) {
+      showStatus(`Failed to refresh ${tabName} tab: ${extractError(error)}`);
+    }
   });
   setActiveTab("process");
 }

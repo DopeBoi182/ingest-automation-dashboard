@@ -1,8 +1,10 @@
 const { readData, getDataFilePath } = require("../storage/dataStore");
+const { connectSqlServer } = require("./sqlserver");
 
 async function connectDb() {
   await readData();
-  return { type: "lowdb", file: getDataFilePath() };
+  const sqlServer = await connectSqlServer();
+  return { type: "lowdb", file: getDataFilePath(), sqlServer };
 }
 
 module.exports = { connectDb };

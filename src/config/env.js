@@ -97,6 +97,20 @@ const env = {
   s3TlsMode: normalizeS3TlsMode(process.env.S3_TLS_MODE),
   s3InsecureSkipVerify: toBool(process.env.S3_INSECURE_SKIP_VERIFY, false),
   s3CaCertPath: normalizeOptionalFilePath(process.env.S3_CA_CERT_PATH),
+  sqlServerEnabled: toBool(process.env.SQLSERVER_ENABLED, false),
+  sqlServerConnectionString: process.env.SQLSERVER_CONNECTION_STRING || "",
+  sqlServerHost: process.env.SQLSERVER_HOST || "",
+  sqlServerPort: toNumber(process.env.SQLSERVER_PORT, 1433),
+  sqlServerDatabase: process.env.SQLSERVER_DATABASE || "",
+  sqlServerUser: process.env.SQLSERVER_USER || "",
+  sqlServerPassword: process.env.SQLSERVER_PASSWORD || "",
+  sqlServerEncrypt: toBool(process.env.SQLSERVER_ENCRYPT, true),
+  sqlServerTrustServerCertificate: toBool(process.env.SQLSERVER_TRUST_SERVER_CERTIFICATE, false),
+  sqlServerConnectionTimeoutMs: toNumber(process.env.SQLSERVER_CONNECTION_TIMEOUT_MS, 15000),
+  sqlServerRequestTimeoutMs: toNumber(process.env.SQLSERVER_REQUEST_TIMEOUT_MS, 30000),
+  sqlServerPoolMax: toNumber(process.env.SQLSERVER_POOL_MAX, 10),
+  sqlServerPoolMin: toNumber(process.env.SQLSERVER_POOL_MIN, 0),
+  sqlServerPoolIdleTimeoutMs: toNumber(process.env.SQLSERVER_POOL_IDLE_TIMEOUT_MS, 30000),
 };
 
 env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);

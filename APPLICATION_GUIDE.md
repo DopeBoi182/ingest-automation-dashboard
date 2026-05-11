@@ -106,6 +106,21 @@ It helps you:
 - `S3_INSECURE_SKIP_VERIFY` (`true` forces insecure compatibility mode)
 - `S3_CA_CERT_PATH` (required when `S3_TLS_MODE=ca`, PEM file path)
 
+## SQL Server Integration (Optional)
+- `SQLSERVER_ENABLED` (`true` to enable connection)
+- `SQLSERVER_HOST` (required when enabled)
+- `SQLSERVER_DATABASE` (required when enabled)
+- `SQLSERVER_USER` (required when enabled)
+- `SQLSERVER_PASSWORD` (required when enabled)
+- `SQLSERVER_PORT` (default `1433`)
+- `SQLSERVER_ENCRYPT` (default `true`)
+- `SQLSERVER_TRUST_SERVER_CERTIFICATE` (default `false`)
+- `SQLSERVER_CONNECTION_TIMEOUT_MS` (default `15000`)
+- `SQLSERVER_REQUEST_TIMEOUT_MS` (default `30000`)
+- `SQLSERVER_POOL_MAX` (default `10`)
+- `SQLSERVER_POOL_MIN` (default `0`)
+- `SQLSERVER_POOL_IDLE_TIMEOUT_MS` (default `30000`)
+
 ### TLS Mode Guidance
 - `secure`: default production mode (`rejectUnauthorized=true`).
 - `insecure`: compatibility mode for self-signed/non-trusted cert chains.
@@ -175,7 +190,53 @@ It helps you:
 - `GET /api/s3/files/urls`
 - `POST /api/s3/ingest`
 
-## 9) Troubleshooting
+## SQL Sync
+- `GET /api/sqlsync/connection-check`
+- `GET /api/sqlsync/template`
+- `POST /api/sqlsync/upload-excel` (multipart form-data, key: `file`)
+
+## 9) Excel SQL Sync (Main Page)
+
+The dashboard now includes an **Excel SQL Sync** section on `/`.
+
+### Purpose
+- Verify SQL Server connection from the app runtime.
+- Upload Excel and sync row data into SQL tables in one flow.
+
+### Sync Order Per Row
+1. Insert into `RepoService.dbo.FileMetadataRepo`
+2. Insert into `RepoService.dbo.AiScheduleQueues` using inserted `FileMetadataRepo.Id` as `FileId`
+
+Each row uses a DB transaction. If one insert fails, that row is rolled back.
+
+### Required Excel Headers
+- `UserId`
+- `FolderId`
+- `FileName`
+- `Extension`
+- `FileSizeByte`
+- `FileType`
+- `FileUrl`
+- `KnowledgeSource`
+- `KnowledgeTags`
+- `JobAction`
+- `JobStatus`
+- `ScheduledAt`
+- `CreatedBy`
+
+### Useful Optional Headers
+- `FileMetadataId`, `QueueId`, `S3Key`, `AbstractContent`, `ThumbnailKey`
+- `AiStatus`, `IsBookmark`, `IsPublish`, `Kind`
+- `FileIsDeleted`, `DocumentLocked`, `FileModified`, `FileModifiedBy`
+- `JobId`, `JobProgress`, `LastErrorCode`, `LastErrorMessage`
+- `ScheduledStart`, `ScheduledAttempts`, `HasFinished`
+- `QueueIsDeleted`, `QueueModified`, `QueueModifiedBy`
+- `HasUpdated`, `KnowledgeType`
+
+To get an up-to-date sample row and defaults from the backend, call:
+- `GET /api/sqlsync/template`
+
+## 10) Troubleshooting
 
 ### "Generate URLs failed: not authorized to perform s3:ListBucket"
 Grant IAM user permissions:
@@ -198,11 +259,24 @@ Grant IAM user permissions:
 - Check `EXTERNAL_BASE_URL` and extractor endpoint values.
 - Confirm server can reach external extractor API.
 
+### SQL Server connection fails at startup
+- Verify `SQLSERVER_ENABLED=true` only when all required SQL values are provided.
+- Check SQL host/port reachability from this server.
+- For internal/self-signed TLS setup, tune:
+  - `SQLSERVER_ENCRYPT`
+  - `SQLSERVER_TRUST_SERVER_CERTIFICATE`
+
+### Excel SQL Sync fails for specific rows
+- Confirm required headers exactly match template names.
+- Ensure `UserId` and `FolderId` are valid existing `uniqueidentifier` values.
+- Ensure `CreatedBy` is not empty.
+- Use `GET /api/sqlsync/template` and align source columns to sample format.
+
 ### Data reset after deployment
 - Ensure `DATA_FILE` path points to persistent storage volume.
 - Do not mount temp filesystem for `data/storage.json`.
 
-## 10) Deployment Notes
+## 11) Deployment Notes
 
 - This app is suitable for environments without DB access.
 - Persist `DATA_FILE` on durable disk/volume.

@@ -514,6 +514,71 @@ function renderS3ConnectivityResult(payload) {
   return lines.join("\n");
 }
 
+function renderSqlConnectionResult(payload) {
+  const lines = [];
+  lines.push(`OK: ${payload?.ok ? "true" : "false"}`);
+  lines.push(`Server: ${payload?.serverName || "-"}`);
+  lines.push(`Database: ${payload?.dbName || "-"}`);
+  lines.push(`Now: ${payload?.nowAt || "-"}`);
+  return lines.join("\n");
+}
+
+function renderSqlTemplateResult(payload) {
+  const requiredHeaders = Array.isArray(payload?.requiredHeaders) ? payload.requiredHeaders : [];
+  const optionalHeaders = Array.isArray(payload?.optionalHeaders) ? payload.optionalHeaders : [];
+  const lines = [];
+  lines.push("Required headers:");
+  requiredHeaders.forEach((header) => lines.push(`- ${header}`));
+  lines.push("");
+  lines.push("Optional headers:");
+  optionalHeaders.forEach((header) => lines.push(`- ${header}`));
+  lines.push("");
+  lines.push("Sample row:");
+  lines.push(JSON.stringify(payload?.sampleRow || {}, null, 2));
+  lines.push("");
+  lines.push("Defaults:");
+  lines.push(JSON.stringify(payload?.defaults || {}, null, 2));
+  return lines.join("\n");
+}
+
+function renderSqlSyncResult(payload) {
+  const lines = [];
+  lines.push(`Total rows: ${payload?.totalRows ?? 0}`);
+  lines.push(`Success: ${payload?.successCount ?? 0}`);
+  lines.push(`Failed: ${payload?.failedCount ?? 0}`);
+  lines.push("");
+  lines.push("Row details:");
+  const rows = Array.isArray(payload?.results) ? payload.results : [];
+  rows.forEach((row) => {
+    if (row.ok) {
+      lines.push(`[OK] row ${row.rowNumber} | QueueId=${row.queueId || "-"}`);
+    } else {
+      lines.push(`[FAIL] row ${row.rowNumber} | ${row.error || "Unknown error"}`);
+    }
+  });
+  return lines.join("\n");
+}
+
+function renderSqlFileMetadataResult(payload) {
+  const lines = [];
+  lines.push(`Filter CreatedBy: ${payload?.createdBy || "-"}`);
+  lines.push(`Requested top: ${payload?.top ?? 0}`);
+  lines.push(`Returned rows: ${payload?.count ?? 0}`);
+  lines.push("");
+  lines.push("Rows:");
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  rows.forEach((row, index) => {
+    lines.push(
+      `${index + 1}. Id=${row.Id || "-"} | FileId=${row.FileId || "-"} | FileType=${
+        row.FileType || "-"
+      } | JobStatus=${row.JobStatus ?? "-"} | ScheduledAt=${row.ScheduledAt || "-"} | CreatedBy=${
+        row.CreatedBy || "-"
+      }`
+    );
+  });
+  return lines.join("\n");
+}
+
 async function runHealthchecker() {
   $("#healthcheckerBtn").prop("disabled", true);
   $("#healthcheckerOutput").text("Checking health endpoints...");
@@ -573,6 +638,123 @@ async function runS3ConnectivityCheck() {
     logFeError("s3Connectivity", error);
   } finally {
     $("#s3ConnectivityBtn").prop("disabled", false);
+  }
+}
+
+async function runSqlConnectionCheck() {
+  $("#sqlConnectionCheckBtn").prop("disabled", true);
+  $("#sqlConnectionOutput").text("Checking SQL connection...");
+  showStatus("Running SQL connection check...");
+  logFeInfo("sqlConnection.begin");
+  try {
+    const response = await getJsonNoCache("./api/sqlsync/connection-check");
+    const data = response.data || {};
+    $("#sqlConnectionOutput").text(renderSqlConnectionResult(data));
+    showStatus(`SQL connection OK: ${data.serverName || "-"} / ${data.dbName || "-"}`);
+    logFeInfo("sqlConnection.success", data);
+  } catch (error) {
+    const msg = extractError(error);
+    $("#sqlConnectionOutput").text(`SQL connection failed.\n${msg}`);
+    showStatus(`SQL connection failed: ${msg}`);
+    logFeError("sqlConnection", error);
+  } finally {
+    $("#sqlConnectionCheckBtn").prop("disabled", false);
+  }
+}
+
+async function loadSqlTemplate() {
+  $("#sqlTemplateBtn").prop("disabled", true);
+  $("#sqlTemplateOutput").text("Preparing template download...");
+  showStatus("Preparing SQL Excel template download...");
+  logFeInfo("sqlTemplate.begin");
+  try {
+    const url = "./api/sqlsync/template-download";
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "sqlsync-template.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    $("#sqlTemplateOutput").text("Template downloaded: sqlsync-template.xlsx");
+    showStatus("Template download started.");
+    logFeInfo("sqlTemplate.success", { mode: "download" });
+  } catch (error) {
+    const msg = extractError(error);
+    $("#sqlTemplateOutput").text(`Failed to download template.\n${msg}`);
+    showStatus(`Template download failed: ${msg}`);
+    logFeError("sqlTemplate", error);
+  } finally {
+    $("#sqlTemplateBtn").prop("disabled", false);
+  }
+}
+
+async function syncSqlExcel(event) {
+  event.preventDefault();
+  const input = $("#sqlExcelInput").get(0);
+  const file = input?.files?.[0];
+  if (!file) {
+    showStatus("Please choose an Excel file first.");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  $("#sqlSyncBtn").prop("disabled", true);
+  $("#sqlSyncOutput").text("Syncing rows to SQL...");
+  showStatus("Uploading Excel and syncing to SQL tables...");
+  logFeInfo("sqlSync.begin", { fileName: file.name, fileSize: file.size });
+  try {
+    const response = await $.ajax({
+      url: "./api/sqlsync/upload-excel",
+      method: "POST",
+      data: formData,
+      processData: false,
+      contentType: false,
+    });
+    const data = response.data || {};
+    $("#sqlSyncOutput").text(renderSqlSyncResult(data));
+    showStatus(`SQL sync completed. Success=${data.successCount ?? 0}, Failed=${data.failedCount ?? 0}`);
+    logFeInfo("sqlSync.success", {
+      totalRows: data.totalRows ?? 0,
+      successCount: data.successCount ?? 0,
+      failedCount: data.failedCount ?? 0,
+    });
+  } catch (error) {
+    const msg = extractError(error);
+    $("#sqlSyncOutput").text(`SQL sync failed.\n${msg}`);
+    showStatus(`SQL sync failed: ${msg}`);
+    logFeError("sqlSync", error);
+  } finally {
+    $("#sqlSyncBtn").prop("disabled", false);
+  }
+}
+
+async function getSqlFileMetadataByCreatedBy() {
+  $("#sqlGetFromTableBtn").prop("disabled", true);
+  $("#sqlSyncOutput").text("Fetching AiScheduleQueues rows...");
+  showStatus("Getting AiScheduleQueues rows for CreatedBy=ingestordash...");
+  logFeInfo("sqlGetFromTable.begin");
+  try {
+    const response = await getJsonNoCache("./api/sqlsync/ai-schedule-queues", {
+      createdBy: "ingestordash",
+      top: 20,
+    });
+    const data = response.data || {};
+    $("#sqlSyncOutput").text(renderSqlFileMetadataResult(data));
+    showStatus(`Got ${data.count ?? 0} row(s) from AiScheduleQueues (ingestordash).`);
+    logFeInfo("sqlGetFromTable.success", {
+      createdBy: data.createdBy || "",
+      count: data.count ?? 0,
+      top: data.top ?? 0,
+    });
+  } catch (error) {
+    const msg = extractError(error);
+    $("#sqlSyncOutput").text(`Get from table failed.\n${msg}`);
+    showStatus(`Get from table failed: ${msg}`);
+    logFeError("sqlGetFromTable", error);
+  } finally {
+    $("#sqlGetFromTableBtn").prop("disabled", false);
   }
 }
 
@@ -725,5 +907,21 @@ $(document).ready(async () => {
 
   $("#s3ConnectivityBtn").on("click", async () => {
     await runS3ConnectivityCheck();
+  });
+
+  $("#sqlConnectionCheckBtn").on("click", async () => {
+    await runSqlConnectionCheck();
+  });
+
+  $("#sqlGetFromTableBtn").on("click", async () => {
+    await getSqlFileMetadataByCreatedBy();
+  });
+
+  $("#sqlTemplateBtn").on("click", async () => {
+    await loadSqlTemplate();
+  });
+
+  $("#sqlExcelForm").on("submit", async (event) => {
+    await syncSqlExcel(event);
   });
 });

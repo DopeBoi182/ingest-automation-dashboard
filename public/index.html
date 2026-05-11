@@ -209,6 +209,31 @@
         <pre id="qnaResponse"></pre>
       </section>
 
+      <section class="card">
+        <h2>Excel SQL Sync</h2>
+        <div class="actions">
+          <button type="button" id="sqlConnectionCheckBtn">Connection Check</button>
+          <button type="button" id="sqlGetFromTableBtn" class="secondary">
+            Get from AiScheduleQueues (ingestordash)
+          </button>
+          <button type="button" id="sqlTemplateBtn" class="secondary">Download Template</button>
+        </div>
+        <pre id="sqlConnectionOutput">Not checked yet.</pre>
+
+        <form id="sqlExcelForm">
+          <label>
+            Upload Excel (`.xlsx`, `.xls`)
+            <input type="file" id="sqlExcelInput" accept=".xlsx,.xls" required />
+          </label>
+          <div class="actions">
+            <button type="submit" id="sqlSyncBtn">Sync to SQL Tables</button>
+          </div>
+        </form>
+
+        <pre id="sqlTemplateOutput">Template download ready.</pre>
+        <pre id="sqlSyncOutput">Sync result not available yet.</pre>
+      </section>
+
       <p id="statusText" class="status">Ready.</p>
 
       <section class="card">

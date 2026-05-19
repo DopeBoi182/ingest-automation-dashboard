@@ -521,6 +521,19 @@ router.post("/process/tick", async (_req, res, next) => {
   }
 });
 
+router.get("/check/:jobId", async (req, res, next) => {
+  try {
+    const jobId = String(req.params.jobId || "").trim();
+    if (!jobId) {
+      return res.status(400).json({ message: "jobId is required." });
+    }
+    const remote = await getJobStatus(jobId);
+    return res.json({ data: remote });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/:jobId/refresh", async (req, res, next) => {
   try {
     const job = await getByJobId(req.params.jobId);

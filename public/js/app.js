@@ -784,6 +784,33 @@ async function askQna(event) {
   logFeInfo("askQna.success");
 }
 
+async function checkJobId(event) {
+  event.preventDefault();
+  const jobId = $("#jobIdInput").val().trim();
+  if (!jobId) {
+    showStatus("Please input a job_id first.");
+    return;
+  }
+
+  $("#jobCheckerBtn").prop("disabled", true);
+  $("#jobCheckerOutput").text("Checking job status...");
+  showStatus(`Checking job_id ${jobId} ...`);
+  logFeInfo("checkJobId.begin", { jobId });
+  try {
+    const response = await getJsonNoCache(`./api/jobs/check/${encodeURIComponent(jobId)}`);
+    $("#jobCheckerOutput").text(JSON.stringify(response.data || {}, null, 2));
+    showStatus(`Job_id ${jobId} checked.`);
+    logFeInfo("checkJobId.success", { jobId });
+  } catch (error) {
+    const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
+    $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+    showStatus(`Job_id check failed: ${extractError(error)}`);
+    logFeError("checkJobId", error, { jobId });
+  } finally {
+    $("#jobCheckerBtn").prop("disabled", false);
+  }
+}
+
 $(document).ready(async () => {
   $(document).ajaxSend((_event, jqxhr, settings) => {
     logFeInfo("ajax.send", { method: settings.type || "GET", url: settings.url || "" });
@@ -899,6 +926,10 @@ $(document).ready(async () => {
     } catch (error) {
       showStatus(`QnA failed: ${extractError(error)}`);
     }
+  });
+
+  $("#jobCheckerForm").on("submit", async (event) => {
+    await checkJobId(event);
   });
 
   $("#healthcheckerBtn").on("click", async () => {

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Komet Dashboard</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Komet Dashboard</h1>
+      <div class="top-nav">
+        <a href="./" class="nav-link">Ingestion</a>
+        <a href="./s3.html" class="nav-link">S3 Fetcher</a>
+        <a href="./komet.html" class="nav-link active">Komet</a>
+      </div>
+
+      <section class="card">
+        <h2>KOMET DB Checker</h2>
+        <div class="actions">
+          <button type="button" id="kometConnectionCheckBtn">Check DB Connection</button>
+          <button type="button" id="kometFetchBtn" class="secondary">Fetch TOP 1000 TblT_Dokumen</button>
+        </div>
+        <pre id="kometConnectionOutput">Not checked yet.</pre>
+      </section>
+
+      <section class="card">
+        <h2>TblT_Dokumen</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>DokumenID_PK</th>
+                <th>DocType</th>
+                <th>DokumenTypeID_FK</th>
+                <th>JudulPolaA</th>
+                <th>JudulPolaB</th>
+                <th>JudulPolaPilih</th>
+                <th>JudulPolaC</th>
+                <th>JudulPolaD</th>
+                <th>Judul</th>
+                <th>DokumenKriteriaID_FK</th>
+                <th>UraianSingkat</th>
+                <th>FaktorPenyebab</th>
+                <th>SolusiPenyelesaian</th>
+                <th>DokumenPath</th>
+                <th>DokumenUrl</th>
+                <th>Kodefikasi</th>
+                <th>DokumenStatusID_FK</th>
+                <th>DokumenStatusComment</th>
+                <th>Approval</th>
+                <th>CreatedBy</th>
+                <th>CreatedTime</th>
+                <th>UpdateBy</th>
+                <th>UpdateTime</th>
+                <th>IDMigrasi</th>
+              </tr>
+            </thead>
+            <tbody id="kometBody">
+              <tr>
+                <td colspan="24">No data loaded yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="statusText" class="status">Ready.</p>
+    </main>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="./js/komet.js"></script>
+  </body>
+</html>

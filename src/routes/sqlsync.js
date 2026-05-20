@@ -357,6 +357,60 @@ router.get("/ai-schedule-queues", async (req, res, next) => {
   }
 });
 
+router.get("/komet-dokumen", async (req, res, next) => {
+  try {
+    await connectSqlServer();
+    const pool = getSqlServerPool();
+    const top = toPositiveInt(req.query.top, 1000, 1000);
+    logSqlInfo("checker.kometDokumen.begin", { top });
+
+    const response = await pool.request().input("TopN", mssql.Int, top).query(`
+        SELECT TOP (@TopN)
+          [DokumenID_PK],
+          [DocType],
+          [DokumenTypeID_FK],
+          [JudulPolaA],
+          [JudulPolaB],
+          [JudulPolaPilih],
+          [JudulPolaC],
+          [JudulPolaD],
+          [Judul],
+          [DokumenKriteriaID_FK],
+          [UraianSingkat],
+          [FaktorPenyebab],
+          [SolusiPenyelesaian],
+          [DokumenPath],
+          [DokumenUrl],
+          [Kodefikasi],
+          [DokumenStatusID_FK],
+          [DokumenStatusComment],
+          [Approval],
+          [CreatedBy],
+          [CreatedTime],
+          [UpdateBy],
+          [UpdateTime],
+          [IDMigrasi]
+        FROM DB_KOMET_V2.dbo.TblT_Dokumen
+        ORDER BY [DokumenID_PK] DESC
+      `);
+
+    res.json({
+      data: {
+        top,
+        count: response.recordset.length,
+        rows: response.recordset,
+      },
+    });
+    logSqlInfo("checker.kometDokumen.success", {
+      top,
+      count: response.recordset.length,
+    });
+  } catch (error) {
+    logSqlError("checker.kometDokumen", error);
+    next(error);
+  }
+});
+
 router.post("/upload-excel", upload.single("file"), async (req, res, next) => {
   const flowId = crypto.randomUUID();
   try {

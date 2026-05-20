@@ -55,6 +55,37 @@ function logSqlError(action, error, meta = {}) {
   });
 }
 
+function createRouteDebug(routeName, req) {
+  const startedAt = Date.now();
+  const traceId = crypto.randomUUID();
+  const logs = [];
+
+  function push(step, meta = {}) {
+    const entry = {
+      at: new Date().toISOString(),
+      step,
+      ...meta,
+    };
+    logs.push(entry);
+    logSqlInfo(`${routeName}.${step}`, { traceId, ...meta });
+  }
+
+  function finalize(status, meta = {}) {
+    return {
+      traceId,
+      route: routeName,
+      method: req.method,
+      path: req.originalUrl || req.url || "",
+      status,
+      durationMs: Date.now() - startedAt,
+      logs,
+      ...meta,
+    };
+  }
+
+  return { push, finalize, traceId };
+}
+
 function toPositiveInt(value, fallback, maxValue) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -212,10 +243,17 @@ async function syncOneRow(pool, row, context = {}) {
   return { queueId: row.queueId };
 }
 
-router.get("/connection-check", async (_req, res, next) => {
+router.get("/connection-check", async (req, res) => {
+  const debug = createRouteDebug("komet.connectionCheck", req);
+  debug.push("request.received", {
+    query: req.query || {},
+  });
   try {
+    debug.push("db.connect.begin");
     await connectSqlServer();
+    debug.push("db.connect.success");
     const pool = getSqlServerPool();
+    debug.push("db.pool.ready");
     const response = await pool.request().query(`
       SELECT
         1 AS ok,
@@ -223,9 +261,37 @@ router.get("/connection-check", async (_req, res, next) => {
         @@SERVERNAME AS serverName,
         SYSDATETIMEOFFSET() AS nowAt
     `);
-    res.json({ data: response.recordset[0] || { ok: 1 } });
+    const row = response.recordset[0] || { ok: 1 };
+    debug.push("query.success", {
+      rowCount: response.recordset?.length || 0,
+      dbName: row.dbName || null,
+      serverName: row.serverName || null,
+    });
+    const debugPayload = debug.finalize("success", {
+      rowCount: response.recordset?.length || 0,
+    });
+    debug.push("response.sending", {
+      responseType: "success",
+    });
+    res.json({ data: row, debug: debugPayload });
   } catch (error) {
-    next(error);
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.connectionCheck", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    debug.push("response.sending", {
+      responseType: "error",
+      statusCode: 500,
+    });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
   }
 });
 
@@ -357,12 +423,19 @@ router.get("/ai-schedule-queues", async (req, res, next) => {
   }
 });
 
-router.get("/komet-dokumen", async (req, res, next) => {
+router.get("/komet-dokumen", async (req, res) => {
+  const debug = createRouteDebug("komet.fetchDokumen", req);
+  debug.push("request.received", {
+    query: req.query || {},
+  });
   try {
+    debug.push("db.connect.begin");
     await connectSqlServer();
+    debug.push("db.connect.success");
     const pool = getSqlServerPool();
+    debug.push("db.pool.ready");
     const top = toPositiveInt(req.query.top, 1000, 1000);
-    logSqlInfo("checker.kometDokumen.begin", { top });
+    debug.push("query.prepare", { top });
 
     const response = await pool.request().input("TopN", mssql.Int, top).query(`
         SELECT TOP (@TopN)
@@ -393,21 +466,46 @@ router.get("/komet-dokumen", async (req, res, next) => {
         FROM DB_KOMET_V2.dbo.TblT_Dokumen
         ORDER BY [DokumenID_PK] DESC
       `);
+    debug.push("query.success", {
+      top,
+      rowCount: response.recordset.length,
+      firstDokumenId: response.recordset[0]?.DokumenID_PK || null,
+    });
 
+    const debugPayload = debug.finalize("success", {
+      top,
+      rowCount: response.recordset.length,
+    });
+    debug.push("response.sending", {
+      responseType: "success",
+      rowCount: response.recordset.length,
+    });
     res.json({
       data: {
         top,
         count: response.recordset.length,
         rows: response.recordset,
       },
-    });
-    logSqlInfo("checker.kometDokumen.success", {
-      top,
-      count: response.recordset.length,
+      debug: debugPayload,
     });
   } catch (error) {
-    logSqlError("checker.kometDokumen", error);
-    next(error);
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.fetchDokumen", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    debug.push("response.sending", {
+      responseType: "error",
+      statusCode: 500,
+    });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
   }
 });
 

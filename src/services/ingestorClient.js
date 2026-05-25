@@ -136,13 +136,13 @@ async function submitExtractJobWithFile(fileInput, setting, options = {}) {
 async function getJobStatus(jobId) {
   logIngestorInfo("getJobStatus.begin", {
     externalBaseUrl: env.externalBaseUrl,
-    endpoint: `${env.statusEndpointPrefix}/${jobId}`,
+    endpoint: `${env.statusEndpointPrefix}/${jobId}/result`,
     jobId,
   });
   try {
     const response = await request({
       method: "GET",
-      endpoint: `${env.statusEndpointPrefix}/${jobId}`,
+      endpoint: `${env.statusEndpointPrefix}/${jobId}/result`,
       timeoutMs: env.requestTimeoutMs,
     });
     logIngestorInfo("getJobStatus.success", {

@@ -21,18 +21,26 @@
         <div class="actions">
           <label for="kometTrustCertToggle">Trust Server Certificate</label>
           <input type="checkbox" id="kometTrustCertToggle" />
-          <button type="button" id="kometApplyTlsBtn" class="secondary">Apply + Reconnect</button>
+          <button type="button" id="kometApplyTlsBtn" class="secondary">Apply TLS</button>
         </div>
         <div class="actions">
+          <button type="button" id="kometConnectionCheckBtn">1) Check Connection</button>
+          <button type="button" id="kometLoadDatabasesBtn" class="secondary">2) Fetch DB List</button>
+        </div>
+        <div class="actions">
+          <label for="kometDatabaseSelect">Database</label>
+          <select id="kometDatabaseSelect">
+            <option value="">-- fetch databases first --</option>
+          </select>
+          <button type="button" id="kometUseDatabaseBtn" class="secondary">3) Use Selected DB</button>
+        </div>
+        <div class="actions">
+          <button type="button" id="kometListTablesBtn" class="secondary">4) Get Table List</button>
           <label for="kometTableSelect">Table</label>
           <select id="kometTableSelect">
             <option value="">-- list tables first --</option>
           </select>
-        </div>
-        <div class="actions">
-          <button type="button" id="kometConnectionCheckBtn">Check DB Connection</button>
-          <button type="button" id="kometListTablesBtn" class="secondary">List Available Tables</button>
-          <button type="button" id="kometFetchBtn" class="secondary">Fetch TOP 1000 (SELECT *)</button>
+          <button type="button" id="kometFetchBtn" class="secondary">5) Preview TOP 1000</button>
         </div>
         <pre id="kometConnectionOutput">Not checked yet.</pre>
       </section>

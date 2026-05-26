@@ -6,9 +6,12 @@ const XLSX = require("xlsx");
 const {
   connectSqlServer,
   getSqlServerPool,
-  reconnectSqlServer,
-  setSqlServerRuntimeTrustServerCertificate,
-  getSqlServerConnectionConfig,
+  connectKometSqlServer,
+  getKometSqlServerPool,
+  reconnectKometSqlServer,
+  setKometRuntimeTrustServerCertificate,
+  setKometRuntimeDatabase,
+  getKometSqlServerConnectionConfig,
 } = require("../config/sqlserver");
 
 const router = express.Router();
@@ -282,7 +285,7 @@ async function syncOneRow(pool, row, context = {}) {
 }
 
 router.get("/connection-check", async (req, res) => {
-  const debug = createRouteDebug("komet.connectionCheck", req);
+  const debug = createRouteDebug("sql.connectionCheck", req);
   debug.push("request.received", {
     query: req.query || {},
   });
@@ -291,6 +294,58 @@ router.get("/connection-check", async (req, res) => {
     await connectSqlServer();
     debug.push("db.connect.success");
     const pool = getSqlServerPool();
+    debug.push("db.pool.ready");
+    const response = await pool.request().query(`
+      SELECT
+        1 AS ok,
+        DB_NAME() AS dbName,
+        @@SERVERNAME AS serverName,
+        SYSDATETIMEOFFSET() AS nowAt
+    `);
+    const row = response.recordset[0] || { ok: 1 };
+    debug.push("query.success", {
+      rowCount: response.recordset?.length || 0,
+      dbName: row.dbName || null,
+      serverName: row.serverName || null,
+    });
+    const debugPayload = debug.finalize("success", {
+      rowCount: response.recordset?.length || 0,
+    });
+    debug.push("response.sending", {
+      responseType: "success",
+    });
+    res.json({ data: row, debug: debugPayload });
+  } catch (error) {
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("sql.connectionCheck", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    debug.push("response.sending", {
+      responseType: "error",
+      statusCode: 500,
+    });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
+  }
+});
+
+router.get("/komet-connection-check", async (req, res) => {
+  const debug = createRouteDebug("komet.connectionCheck", req);
+  debug.push("request.received", {
+    query: req.query || {},
+  });
+  try {
+    debug.push("db.connect.begin");
+    await connectKometSqlServer();
+    debug.push("db.connect.success");
+    const pool = getKometSqlServerPool();
     debug.push("db.pool.ready");
     const response = await pool.request().query(`
       SELECT
@@ -334,7 +389,7 @@ router.get("/connection-check", async (req, res) => {
 });
 
 router.get("/connection-config", (_req, res) => {
-  res.json({ data: getSqlServerConnectionConfig() });
+  res.json({ data: getKometSqlServerConnectionConfig() });
 });
 
 router.post("/connection-config", (req, res) => {
@@ -359,13 +414,13 @@ router.post("/connection-config", (req, res) => {
   }
 
   if (inputValue === null) {
-    setSqlServerRuntimeTrustServerCertificate(undefined);
+    setKometRuntimeTrustServerCertificate(undefined);
   } else {
-    setSqlServerRuntimeTrustServerCertificate(toBool(inputValue, false));
+    setKometRuntimeTrustServerCertificate(toBool(inputValue, false));
   }
 
   return res.json({
-    data: getSqlServerConnectionConfig(),
+    data: getKometSqlServerConnectionConfig(),
   });
 });
 
@@ -373,10 +428,15 @@ router.post("/reconnect", async (req, res) => {
   const debug = createRouteDebug("komet.reconnect", req);
   debug.push("request.received");
   try {
+    const database = String(req.body?.database || "").trim();
+    if (database && !isValidIdentifierPart(database)) {
+      throw new Error("Invalid database name.");
+    }
+    setKometRuntimeDatabase(database || undefined);
     debug.push("db.reconnect.begin");
-    await reconnectSqlServer();
+    await reconnectKometSqlServer();
     debug.push("db.reconnect.success");
-    const pool = getSqlServerPool();
+    const pool = getKometSqlServerPool();
     const response = await pool.request().query(`
       SELECT
         DB_NAME() AS dbName,
@@ -384,7 +444,7 @@ router.post("/reconnect", async (req, res) => {
         SYSDATETIMEOFFSET() AS nowAt
     `);
     const row = response.recordset?.[0] || {};
-    const config = getSqlServerConnectionConfig();
+    const config = getKometSqlServerConnectionConfig();
     const debugPayload = debug.finalize("success", {
       serverName: row.serverName || null,
       dbName: row.dbName || null,
@@ -409,6 +469,55 @@ router.post("/reconnect", async (req, res) => {
       originalError: error?.originalError?.info?.message || null,
     });
     logSqlError("komet.reconnect", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
+  }
+});
+
+router.get("/komet-databases", async (req, res) => {
+  const debug = createRouteDebug("komet.listDatabases", req);
+  debug.push("request.received");
+  try {
+    debug.push("db.connect.begin");
+    await connectKometSqlServer();
+    debug.push("db.connect.success");
+    const pool = getKometSqlServerPool();
+    debug.push("db.pool.ready");
+    const response = await pool.request().query(`
+      SELECT name
+      FROM sys.databases
+      WHERE database_id > 4
+        AND state_desc = 'ONLINE'
+        AND HAS_DBACCESS(name) = 1
+      ORDER BY name
+    `);
+    const rows = response.recordset || [];
+    const databases = rows.map((row) => row.name).filter(Boolean);
+    const config = getKometSqlServerConnectionConfig();
+    const debugPayload = debug.finalize("success", {
+      count: databases.length,
+      selectedDatabase: config.database || null,
+    });
+    res.json({
+      data: {
+        count: databases.length,
+        databases,
+        selectedDatabase: config.database || null,
+      },
+      debug: debugPayload,
+    });
+  } catch (error) {
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.listDatabases", error, { traceId: debug.traceId });
     const debugPayload = debug.finalize("error");
     res.status(500).json({
       message: "Request failed",
@@ -553,9 +662,9 @@ router.get("/komet-dokumen", async (req, res) => {
   });
   try {
     debug.push("db.connect.begin");
-    await connectSqlServer();
+    await connectKometSqlServer();
     debug.push("db.connect.success");
-    const pool = getSqlServerPool();
+    const pool = getKometSqlServerPool();
     debug.push("db.pool.ready");
     const top = toPositiveInt(req.query.top, 1000, 1000);
     debug.push("query.prepare", { top });
@@ -639,9 +748,9 @@ router.get("/komet-tables", async (req, res) => {
   });
   try {
     debug.push("db.connect.begin");
-    await connectSqlServer();
+    await connectKometSqlServer();
     debug.push("db.connect.success");
-    const pool = getSqlServerPool();
+    const pool = getKometSqlServerPool();
     debug.push("db.pool.ready");
 
     const response = await pool.request().query(`
@@ -719,9 +828,9 @@ router.get("/komet-table-preview", async (req, res) => {
     });
 
     debug.push("db.connect.begin");
-    await connectSqlServer();
+    await connectKometSqlServer();
     debug.push("db.connect.success");
-    const pool = getSqlServerPool();
+    const pool = getKometSqlServerPool();
     debug.push("db.pool.ready");
 
     const existsResult = await pool

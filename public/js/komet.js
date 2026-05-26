@@ -71,10 +71,28 @@ function renderTableOptions(tables) {
   $("#kometTableSelect").html(options.join(""));
 }
 
+function renderDatabaseOptions(databases) {
+  const options = ['<option value="">-- select database --</option>'];
+  (Array.isArray(databases) ? databases : []).forEach((database) => {
+    const normalized = String(database || "").trim();
+    if (!normalized) return;
+    const safeName = escapeHtml(normalized);
+    options.push(`<option value="${safeName}">${safeName}</option>`);
+  });
+  $("#kometDatabaseSelect").html(options.join(""));
+}
+
 async function runConnectionCheck() {
-  const response = await getJsonNoCache("./api/sqlsync/connection-check");
+  const response = await getJsonNoCache("./api/sqlsync/komet-connection-check");
   const payload = response.data || {};
   $("#kometConnectionOutput").text(JSON.stringify(payload, null, 2));
+  return payload;
+}
+
+async function listKometDatabases() {
+  const response = await getJsonNoCache("./api/sqlsync/komet-databases");
+  const payload = response.data || {};
+  renderDatabaseOptions(payload.databases || []);
   return payload;
 }
 
@@ -108,7 +126,10 @@ async function updateConnectionConfig(trustServerCertificate) {
 }
 
 async function reconnectSqlConnection() {
-  const response = await postJsonNoCache("./api/sqlsync/reconnect", {});
+  const selectedDatabase = $("#kometDatabaseSelect").val();
+  const response = await postJsonNoCache("./api/sqlsync/reconnect", {
+    database: selectedDatabase || undefined,
+  });
   return response.data || {};
 }
 
@@ -129,12 +150,25 @@ async function applyTlsAndReconnect() {
   return reconnectResult;
 }
 
+async function useSelectedDatabase() {
+  const selectedDatabase = $("#kometDatabaseSelect").val();
+  if (!selectedDatabase) {
+    throw new Error("Please select a database first.");
+  }
+  return reconnectSqlConnection();
+}
+
 $(document).ready(() => {
   (async () => {
     showStatus("Loading SQL connection config...");
     try {
       const config = await getConnectionConfig();
       syncToggleFromConfig(config);
+      if (config.database) {
+        $("#kometDatabaseSelect").html(
+          `<option value="${escapeHtml(config.database)}" selected>${escapeHtml(config.database)}</option>`
+        );
+      }
       showStatus(
         `Config loaded: trustServerCertificate=${config.trustServerCertificate ? "true" : "false"} (${config.trustServerCertificateSource || "env"})`
       );
@@ -146,11 +180,12 @@ $(document).ready(() => {
 
   $("#kometApplyTlsBtn").on("click", async () => {
     const toggleText = $("#kometTrustCertToggle").is(":checked") ? "true" : "false";
-    showStatus(`Applying trustServerCertificate=${toggleText} and reconnecting...`);
+    showStatus(`Applying trustServerCertificate=${toggleText}...`);
     try {
       const result = await applyTlsAndReconnect();
       const cfg = result?.config || {};
       syncToggleFromConfig(cfg);
+      renderTableOptions([]);
       showStatus(
         `Reconnected: ${result.serverName || "-"} / ${result.dbName || "-"} (trustServerCertificate=${cfg.trustServerCertificate ? "true" : "false"})`
       );
@@ -180,6 +215,43 @@ $(document).ready(() => {
         )
       );
       showStatus(`Connection check failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#kometLoadDatabasesBtn").on("click", async () => {
+    showStatus("Loading database list...");
+    try {
+      const data = await listKometDatabases();
+      if (data.selectedDatabase) {
+        $("#kometDatabaseSelect").val(data.selectedDatabase);
+      }
+      setRawOutput(data);
+      showStatus(`Loaded ${data.count || 0} database(s).`);
+    } catch (error) {
+      setRawOutputError(error);
+      showStatus(`Load database list failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#kometUseDatabaseBtn").on("click", async () => {
+    const selectedDatabase = $("#kometDatabaseSelect").val();
+    if (!selectedDatabase) {
+      showStatus("Please select a database first.");
+      return;
+    }
+    showStatus(`Switching connection to database ${selectedDatabase}...`);
+    try {
+      const result = await useSelectedDatabase();
+      renderTableOptions([]);
+      setRawOutput({
+        action: "use_selected_database",
+        selectedDatabase,
+        reconnect: result,
+      });
+      showStatus(`Connected to ${result.dbName || selectedDatabase}.`);
+    } catch (error) {
+      setRawOutputError(error);
+      showStatus(`Switch database failed: ${extractError(error)}`);
     }
   });
 

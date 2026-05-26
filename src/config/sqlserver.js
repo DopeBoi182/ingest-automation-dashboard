@@ -4,6 +4,10 @@ const env = require("./env");
 let sqlPool = null;
 let connectPromise = null;
 let runtimeTrustServerCertificate;
+let kometSqlPool = null;
+let kometConnectPromise = null;
+let runtimeKometTrustServerCertificate;
+let runtimeKometDatabase;
 
 function toBool(value, defaultValue) {
   if (value === undefined || value === null || value === "") return defaultValue;
@@ -60,27 +64,25 @@ function getMissingRequiredFields() {
   return requiredFields.filter(([, value]) => !String(value || "").trim()).map(([name]) => name);
 }
 
-function buildSqlServerConfig() {
+function buildBaseSqlServerConfig({ trustServerCertificate, databaseOverride } = {}) {
   const fromConnectionString = String(env.sqlServerConnectionString || "").trim();
-  const trustServerCertificate =
-    runtimeTrustServerCertificate === undefined
-      ? env.sqlServerTrustServerCertificate
-      : runtimeTrustServerCertificate;
+  const resolvedTrustServerCertificate =
+    trustServerCertificate === undefined ? env.sqlServerTrustServerCertificate : trustServerCertificate;
 
   if (fromConnectionString) {
     const parsed = parseConnectionString(fromConnectionString);
     return {
       server: parsed.server,
       port: parsed.port,
-      database: parsed.database,
+      database: databaseOverride || parsed.database || "",
       user: parsed.user,
       password: parsed.password,
       options: {
         encrypt: parsed.options.encrypt,
         trustServerCertificate:
-          runtimeTrustServerCertificate === undefined
+          trustServerCertificate === undefined
             ? parsed.options.trustServerCertificate
-            : runtimeTrustServerCertificate,
+            : resolvedTrustServerCertificate,
       },
       connectionTimeout: env.sqlServerConnectionTimeoutMs,
       requestTimeout: env.sqlServerRequestTimeoutMs,
@@ -95,12 +97,12 @@ function buildSqlServerConfig() {
   return {
     server: env.sqlServerHost,
     port: env.sqlServerPort,
-    database: env.sqlServerDatabase,
+    database: databaseOverride || env.sqlServerDatabase,
     user: env.sqlServerUser,
     password: env.sqlServerPassword,
     options: {
       encrypt: env.sqlServerEncrypt,
-      trustServerCertificate,
+      trustServerCertificate: resolvedTrustServerCertificate,
     },
     connectionTimeout: env.sqlServerConnectionTimeoutMs,
     requestTimeout: env.sqlServerRequestTimeoutMs,
@@ -110,6 +112,26 @@ function buildSqlServerConfig() {
       idleTimeoutMillis: env.sqlServerPoolIdleTimeoutMs,
     },
   };
+}
+
+function buildSqlServerConfig() {
+  const trustServerCertificate =
+    runtimeTrustServerCertificate === undefined
+      ? env.sqlServerTrustServerCertificate
+      : runtimeTrustServerCertificate;
+  return buildBaseSqlServerConfig({ trustServerCertificate });
+}
+
+function buildKometSqlServerConfig() {
+  const trustServerCertificate =
+    runtimeKometTrustServerCertificate === undefined
+      ? env.sqlServerTrustServerCertificate
+      : runtimeKometTrustServerCertificate;
+  const selectedDatabase = String(runtimeKometDatabase || "").trim() || "master";
+  return buildBaseSqlServerConfig({
+    trustServerCertificate,
+    databaseOverride: selectedDatabase,
+  });
 }
 
 function validateSqlServerConfig() {
@@ -152,11 +174,49 @@ async function connectSqlServer() {
   return { enabled: true, connected: true };
 }
 
+async function connectKometSqlServer() {
+  if (!env.sqlServerEnabled) {
+    return { enabled: false, connected: false };
+  }
+
+  if (kometSqlPool) {
+    return { enabled: true, connected: true };
+  }
+
+  if (!kometConnectPromise) {
+    kometConnectPromise = (async () => {
+      validateSqlServerConfig();
+      const pool = new mssql.ConnectionPool(buildKometSqlServerConfig());
+      pool.on("error", (error) => {
+        // eslint-disable-next-line no-console
+        console.error("[SQLServer][Komet] Pool error:", error);
+      });
+      await pool.connect();
+      kometSqlPool = pool;
+      return kometSqlPool;
+    })().catch((error) => {
+      kometSqlPool = null;
+      kometConnectPromise = null;
+      throw error;
+    });
+  }
+
+  await kometConnectPromise;
+  return { enabled: true, connected: true };
+}
+
 function getSqlServerPool() {
   if (!sqlPool) {
     throw new Error("SQL Server pool is not initialized. Call connectSqlServer() first.");
   }
   return sqlPool;
+}
+
+function getKometSqlServerPool() {
+  if (!kometSqlPool) {
+    throw new Error("Komet SQL Server pool is not initialized. Call connectKometSqlServer() first.");
+  }
+  return kometSqlPool;
 }
 
 async function closeSqlServer() {
@@ -170,9 +230,25 @@ async function closeSqlServer() {
   await pool.close();
 }
 
+async function closeKometSqlServer() {
+  if (!kometSqlPool) {
+    kometConnectPromise = null;
+    return;
+  }
+  const pool = kometSqlPool;
+  kometSqlPool = null;
+  kometConnectPromise = null;
+  await pool.close();
+}
+
 async function reconnectSqlServer() {
   await closeSqlServer();
   return connectSqlServer();
+}
+
+async function reconnectKometSqlServer() {
+  await closeKometSqlServer();
+  return connectKometSqlServer();
 }
 
 function setSqlServerRuntimeTrustServerCertificate(value) {
@@ -181,6 +257,23 @@ function setSqlServerRuntimeTrustServerCertificate(value) {
     return;
   }
   runtimeTrustServerCertificate = Boolean(value);
+}
+
+function setKometRuntimeTrustServerCertificate(value) {
+  if (value === undefined || value === null || value === "") {
+    runtimeKometTrustServerCertificate = undefined;
+    return;
+  }
+  runtimeKometTrustServerCertificate = Boolean(value);
+}
+
+function setKometRuntimeDatabase(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    runtimeKometDatabase = undefined;
+    return;
+  }
+  runtimeKometDatabase = normalized;
 }
 
 function getSqlServerConnectionConfig() {
@@ -198,11 +291,34 @@ function getSqlServerConnectionConfig() {
   };
 }
 
+function getKometSqlServerConnectionConfig() {
+  const config = buildKometSqlServerConfig();
+  return {
+    enabled: env.sqlServerEnabled,
+    connected: Boolean(kometSqlPool),
+    server: config.server,
+    port: config.port,
+    database: config.database || null,
+    encrypt: config.options.encrypt,
+    trustServerCertificate: config.options.trustServerCertificate,
+    trustServerCertificateSource:
+      runtimeKometTrustServerCertificate === undefined ? "env" : "runtime",
+    databaseSource: runtimeKometDatabase ? "runtime" : "default",
+  };
+}
+
 module.exports = {
   connectSqlServer,
+  connectKometSqlServer,
   getSqlServerPool,
+  getKometSqlServerPool,
   closeSqlServer,
+  closeKometSqlServer,
   reconnectSqlServer,
+  reconnectKometSqlServer,
   setSqlServerRuntimeTrustServerCertificate,
+  setKometRuntimeTrustServerCertificate,
+  setKometRuntimeDatabase,
   getSqlServerConnectionConfig,
+  getKometSqlServerConnectionConfig,
 };

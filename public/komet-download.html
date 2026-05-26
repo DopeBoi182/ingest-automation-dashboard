@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Komet Downloader</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Komet Downloader</h1>
+      <div class="top-nav">
+        <a href="./" class="nav-link">Ingestion</a>
+        <a href="./s3.html" class="nav-link">S3 Fetcher</a>
+        <a href="./komet.html" class="nav-link">Komet</a>
+        <a href="./komet-download.html" class="nav-link active">Komet Downloader</a>
+      </div>
+
+      <section class="card">
+        <h2>Single-Link Download Tester</h2>
+        <form id="kometDownloadForm">
+          <div class="grid-2">
+            <label>
+              Base URL
+              <input
+                type="text"
+                id="baseUrlInput"
+                placeholder="https://apps.pertamina.com/KometV2/DetailDocument/Download1?filename="
+                required
+              />
+            </label>
+            <label>
+              Download Target Dir (under downloads/)
+              <input type="text" id="downloadDirInput" placeholder="komet" required />
+            </label>
+          </div>
+
+          <label>
+            Cookie Header Value
+            <textarea
+              id="cookieInput"
+              rows="4"
+              placeholder="__RequestVerificationToken=...; ASP.NET_SessionId=...; KOMET=..."
+              required
+            ></textarea>
+          </label>
+
+          <label>
+            Relative File Path
+            <input
+              type="text"
+              id="singlePathInput"
+              placeholder="App_Data/Document/2013/11/AB0482.pdf"
+              required
+            />
+          </label>
+
+          <div class="actions">
+            <button type="submit" id="downloadTestBtn">Download Test</button>
+            <button type="button" id="clearLogsBtn" class="secondary">Clear Logs</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Debug Logs</h2>
+        <pre id="kometDownloadLogs">No logs yet.</pre>
+      </section>
+
+      <section class="card">
+        <h2>Raw API Output</h2>
+        <pre id="kometDownloadRawOutput">No request yet.</pre>
+      </section>
+
+      <p id="statusText" class="status">Ready.</p>
+    </main>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="./js/komet-download.js"></script>
+  </body>
+</html>

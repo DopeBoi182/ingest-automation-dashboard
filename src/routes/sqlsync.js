@@ -3,6 +3,7 @@ const express = require("express");
 const multer = require("multer");
 const mssql = require("mssql");
 const XLSX = require("xlsx");
+const env = require("../config/env");
 const {
   connectSqlServer,
   getSqlServerPool,
@@ -147,6 +148,15 @@ function parseSchemaAndTable(rawTable) {
   }
 
   return { schema, table };
+}
+
+function ensureKometEnabled(res) {
+  if (!env.kometDisabled) return true;
+  res.status(503).json({
+    message: "Komet is disabled by environment.",
+    detail: "Set KOMET_DISABLED=false to enable Komet routes.",
+  });
+  return false;
 }
 
 function parseExcelDate(value, fieldName, required) {
@@ -337,6 +347,7 @@ router.get("/connection-check", async (req, res) => {
 });
 
 router.get("/komet-connection-check", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.connectionCheck", req);
   debug.push("request.received", {
     query: req.query || {},
@@ -389,10 +400,12 @@ router.get("/komet-connection-check", async (req, res) => {
 });
 
 router.get("/connection-config", (_req, res) => {
+  if (!ensureKometEnabled(res)) return;
   res.json({ data: getKometSqlServerConnectionConfig() });
 });
 
 router.post("/connection-config", (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   setKometRuntimeTrustServerCertificate(true);
 
   return res.json({
@@ -401,6 +414,7 @@ router.post("/connection-config", (req, res) => {
 });
 
 router.post("/reconnect", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.reconnect", req);
   debug.push("request.received");
   try {
@@ -455,6 +469,7 @@ router.post("/reconnect", async (req, res) => {
 });
 
 router.get("/komet-databases", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.listDatabases", req);
   debug.push("request.received");
   try {
@@ -632,6 +647,7 @@ router.get("/ai-schedule-queues", async (req, res, next) => {
 });
 
 router.get("/komet-dokumen", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.fetchDokumen", req);
   debug.push("request.received", {
     query: req.query || {},
@@ -718,6 +734,7 @@ router.get("/komet-dokumen", async (req, res) => {
 });
 
 router.get("/komet-tables", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.listTables", req);
   debug.push("request.received", {
     query: req.query || {},
@@ -789,6 +806,7 @@ router.get("/komet-tables", async (req, res) => {
 });
 
 router.get("/komet-table-preview", async (req, res) => {
+  if (!ensureKometEnabled(res)) return;
   const debug = createRouteDebug("komet.tablePreview", req);
   debug.push("request.received", {
     query: req.query || {},

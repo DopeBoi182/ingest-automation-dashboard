@@ -111,6 +111,7 @@ const env = {
   sqlServerPoolMax: toNumber(process.env.SQLSERVER_POOL_MAX, 10),
   sqlServerPoolMin: toNumber(process.env.SQLSERVER_POOL_MIN, 0),
   sqlServerPoolIdleTimeoutMs: toNumber(process.env.SQLSERVER_POOL_IDLE_TIMEOUT_MS, 30000),
+  kometDisabled: toBool(process.env.KOMET_DISABLED, false),
 };
 
 env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);

@@ -393,31 +393,7 @@ router.get("/connection-config", (_req, res) => {
 });
 
 router.post("/connection-config", (req, res) => {
-  const hasValue = Object.prototype.hasOwnProperty.call(req.body || {}, "trustServerCertificate");
-  if (!hasValue) {
-    return res.status(400).json({
-      message: "trustServerCertificate is required in body.",
-    });
-  }
-
-  const inputValue = req.body.trustServerCertificate;
-  if (
-    inputValue !== null &&
-    typeof inputValue !== "boolean" &&
-    !["true", "false", "1", "0", "yes", "no", "on", "off"].includes(
-      String(inputValue).trim().toLowerCase()
-    )
-  ) {
-    return res.status(400).json({
-      message: "trustServerCertificate must be boolean or null.",
-    });
-  }
-
-  if (inputValue === null) {
-    setKometRuntimeTrustServerCertificate(undefined);
-  } else {
-    setKometRuntimeTrustServerCertificate(toBool(inputValue, false));
-  }
+  setKometRuntimeTrustServerCertificate(true);
 
   return res.json({
     data: getKometSqlServerConnectionConfig(),

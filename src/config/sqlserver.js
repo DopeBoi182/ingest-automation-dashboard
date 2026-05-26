@@ -123,15 +123,14 @@ function buildSqlServerConfig() {
 }
 
 function buildKometSqlServerConfig() {
-  const trustServerCertificate =
-    runtimeKometTrustServerCertificate === undefined
-      ? env.sqlServerTrustServerCertificate
-      : runtimeKometTrustServerCertificate;
   const selectedDatabase = String(runtimeKometDatabase || "").trim() || "master";
-  return buildBaseSqlServerConfig({
-    trustServerCertificate,
+  const config = buildBaseSqlServerConfig({
+    trustServerCertificate: true,
     databaseOverride: selectedDatabase,
   });
+  config.options.encrypt = true;
+  config.options.trustServerCertificate = true;
+  return config;
 }
 
 function validateSqlServerConfig() {
@@ -260,11 +259,9 @@ function setSqlServerRuntimeTrustServerCertificate(value) {
 }
 
 function setKometRuntimeTrustServerCertificate(value) {
-  if (value === undefined || value === null || value === "") {
-    runtimeKometTrustServerCertificate = undefined;
-    return;
-  }
-  runtimeKometTrustServerCertificate = Boolean(value);
+  // Komet connection is fixed by DevOps policy:
+  // encrypt=true and trustServerCertificate=true.
+  runtimeKometTrustServerCertificate = true;
 }
 
 function setKometRuntimeDatabase(value) {
@@ -301,8 +298,7 @@ function getKometSqlServerConnectionConfig() {
     database: config.database || null,
     encrypt: config.options.encrypt,
     trustServerCertificate: config.options.trustServerCertificate,
-    trustServerCertificateSource:
-      runtimeKometTrustServerCertificate === undefined ? "env" : "runtime",
+    trustServerCertificateSource: "fixed",
     databaseSource: runtimeKometDatabase ? "runtime" : "default",
   };
 }

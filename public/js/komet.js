@@ -1,30 +1,3 @@
-const KOMET_COLUMNS = [
-  "DokumenID_PK",
-  "DocType",
-  "DokumenTypeID_FK",
-  "JudulPolaA",
-  "JudulPolaB",
-  "JudulPolaPilih",
-  "JudulPolaC",
-  "JudulPolaD",
-  "Judul",
-  "DokumenKriteriaID_FK",
-  "UraianSingkat",
-  "FaktorPenyebab",
-  "SolusiPenyelesaian",
-  "DokumenPath",
-  "DokumenUrl",
-  "Kodefikasi",
-  "DokumenStatusID_FK",
-  "DokumenStatusComment",
-  "Approval",
-  "CreatedBy",
-  "CreatedTime",
-  "UpdateBy",
-  "UpdateTime",
-  "IDMigrasi",
-];
-
 function showStatus(message) {
   $("#statusText").text(message);
 }
@@ -59,30 +32,28 @@ async function getJsonNoCache(url, data) {
   });
 }
 
-function toCellHtml(column, value) {
-  if (value === null || value === undefined || value === "") return "-";
-  const safeValue = escapeHtml(value);
-  if (column === "DokumenUrl" && /^https?:\/\//i.test(String(value))) {
-    return `<a href="${safeValue}" target="_blank" rel="noopener noreferrer">${safeValue}</a>`;
-  }
-  return safeValue;
+function setRawOutput(payload) {
+  $("#kometRawOutput").text(JSON.stringify(payload, null, 2));
 }
 
-function renderRows(rows) {
-  const dataRows = Array.isArray(rows) ? rows : [];
-  if (!dataRows.length) {
-    $("#kometBody").html('<tr><td colspan="24">No data found.</td></tr>');
-    return;
-  }
+function setRawOutputError(error) {
+  const payload = {
+    message: error?.responseJSON?.message || "Request failed",
+    detail: extractError(error),
+    debug: error?.responseJSON?.debug || null,
+  };
+  setRawOutput(payload);
+}
 
-  const html = dataRows
-    .map((row) => {
-      const cells = KOMET_COLUMNS.map((column) => `<td>${toCellHtml(column, row?.[column])}</td>`).join("");
-      return `<tr>${cells}</tr>`;
-    })
-    .join("");
-
-  $("#kometBody").html(html);
+function renderTableOptions(tables) {
+  const options = ['<option value="">-- select table --</option>'];
+  (Array.isArray(tables) ? tables : []).forEach((item) => {
+    const fullName = item?.fullName || `${item?.schema || "dbo"}.${item?.table || ""}`;
+    if (!fullName || fullName.endsWith(".")) return;
+    const safeName = escapeHtml(fullName);
+    options.push(`<option value="${safeName}">${safeName}</option>`);
+  });
+  $("#kometTableSelect").html(options.join(""));
 }
 
 async function runConnectionCheck() {
@@ -92,11 +63,20 @@ async function runConnectionCheck() {
   return payload;
 }
 
-async function fetchKometDokumen() {
-  const response = await getJsonNoCache("./api/sqlsync/komet-dokumen", { top: 1000 });
+async function listKometTables() {
+  const response = await getJsonNoCache("./api/sqlsync/komet-tables");
   const payload = response.data || {};
-  const rows = payload.rows || [];
-  renderRows(rows);
+  renderTableOptions(payload.tables || []);
+  return payload;
+}
+
+async function fetchKometTablePreview(tableName) {
+  const response = await getJsonNoCache("./api/sqlsync/komet-table-preview", {
+    table: tableName,
+    top: 1000,
+  });
+  const payload = response.data || {};
+  setRawOutput(payload);
   return payload;
 }
 
@@ -109,16 +89,46 @@ $(document).ready(() => {
         `Connection OK: ${data.serverName || "-"} / ${data.dbName || "-"} at ${data.nowAt || "-"}`
       );
     } catch (error) {
+      $("#kometConnectionOutput").text(
+        JSON.stringify(
+          {
+            message: error?.responseJSON?.message || "Request failed",
+            detail: extractError(error),
+            debug: error?.responseJSON?.debug || null,
+          },
+          null,
+          2
+        )
+      );
       showStatus(`Connection check failed: ${extractError(error)}`);
     }
   });
 
-  $("#kometFetchBtn").on("click", async () => {
-    showStatus("Loading KOMET data...");
+  $("#kometListTablesBtn").on("click", async () => {
+    showStatus("Loading table list...");
     try {
-      const data = await fetchKometDokumen();
-      showStatus(`Loaded ${data.count || 0} rows from DB_KOMET_V2.dbo.TblT_Dokumen`);
+      const data = await listKometTables();
+      setRawOutput(data);
+      showStatus(`Loaded ${data.count || 0} table(s) from ${data.currentDb || "-"}`);
     } catch (error) {
+      setRawOutputError(error);
+      showStatus(`List tables failed: ${extractError(error)}`);
+    }
+  });
+
+  $("#kometFetchBtn").on("click", async () => {
+    const tableName = $("#kometTableSelect").val();
+    if (!tableName) {
+      showStatus("Please list and select a table first.");
+      return;
+    }
+
+    showStatus(`Loading TOP 1000 rows from ${tableName}...`);
+    try {
+      const data = await fetchKometTablePreview(tableName);
+      showStatus(`Loaded ${data.count || 0} row(s) from ${data.fullName || tableName}`);
+    } catch (error) {
+      setRawOutputError(error);
       showStatus(`Fetch data failed: ${extractError(error)}`);
     }
   });

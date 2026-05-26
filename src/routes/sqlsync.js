@@ -108,6 +108,38 @@ function toInt(value, fallback = 0) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+function isValidIdentifierPart(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (normalized.length > 128) return false;
+  return !/[\u0000-\u001F\u007F]/.test(normalized);
+}
+
+function escapeSqlIdentifier(value) {
+  return `[${String(value).replaceAll("]", "]]")}]`;
+}
+
+function parseSchemaAndTable(rawTable) {
+  const raw = String(rawTable || "").trim();
+  if (!raw) {
+    throw new Error("table is required.");
+  }
+
+  const parts = raw.split(".");
+  if (parts.length > 2) {
+    throw new Error("Invalid table format. Use table or schema.table.");
+  }
+
+  const schema = parts.length === 2 ? parts[0].trim() : "dbo";
+  const table = parts.length === 2 ? parts[1].trim() : parts[0].trim();
+
+  if (!isValidIdentifierPart(schema) || !isValidIdentifierPart(table)) {
+    throw new Error("Invalid table identifier.");
+  }
+
+  return { schema, table };
+}
+
 function parseExcelDate(value, fieldName, required) {
   if (value === undefined || value === null || value === "") {
     if (required) throw new Error(`${fieldName} is required.`);
@@ -496,6 +528,178 @@ router.get("/komet-dokumen", async (req, res) => {
       originalError: error?.originalError?.info?.message || null,
     });
     logSqlError("komet.fetchDokumen", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    debug.push("response.sending", {
+      responseType: "error",
+      statusCode: 500,
+    });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
+  }
+});
+
+router.get("/komet-tables", async (req, res) => {
+  const debug = createRouteDebug("komet.listTables", req);
+  debug.push("request.received", {
+    query: req.query || {},
+  });
+  try {
+    debug.push("db.connect.begin");
+    await connectSqlServer();
+    debug.push("db.connect.success");
+    const pool = getSqlServerPool();
+    debug.push("db.pool.ready");
+
+    const response = await pool.request().query(`
+      SELECT
+        DB_NAME() AS currentDb,
+        t.TABLE_SCHEMA AS tableSchema,
+        t.TABLE_NAME AS tableName
+      FROM INFORMATION_SCHEMA.TABLES t
+      WHERE t.TABLE_TYPE = 'BASE TABLE'
+      ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME
+    `);
+
+    const rows = response.recordset || [];
+    const tables = rows.map((row) => ({
+      schema: row.tableSchema,
+      table: row.tableName,
+      fullName: `${row.tableSchema}.${row.tableName}`,
+    }));
+
+    debug.push("query.success", {
+      rowCount: rows.length,
+      currentDb: rows[0]?.currentDb || null,
+    });
+
+    const debugPayload = debug.finalize("success", {
+      rowCount: rows.length,
+      currentDb: rows[0]?.currentDb || null,
+    });
+    debug.push("response.sending", {
+      responseType: "success",
+      rowCount: rows.length,
+    });
+    res.json({
+      data: {
+        currentDb: rows[0]?.currentDb || null,
+        count: tables.length,
+        tables,
+      },
+      debug: debugPayload,
+    });
+  } catch (error) {
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.listTables", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
+    debug.push("response.sending", {
+      responseType: "error",
+      statusCode: 500,
+    });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
+  }
+});
+
+router.get("/komet-table-preview", async (req, res) => {
+  const debug = createRouteDebug("komet.tablePreview", req);
+  debug.push("request.received", {
+    query: req.query || {},
+  });
+  try {
+    const { schema, table } = parseSchemaAndTable(req.query.table);
+    const top = toPositiveInt(req.query.top, 1000, 1000);
+
+    debug.push("request.validated", {
+      schema,
+      table,
+      top,
+    });
+
+    debug.push("db.connect.begin");
+    await connectSqlServer();
+    debug.push("db.connect.success");
+    const pool = getSqlServerPool();
+    debug.push("db.pool.ready");
+
+    const existsResult = await pool
+      .request()
+      .input("SchemaName", mssql.NVarChar(128), schema)
+      .input("TableName", mssql.NVarChar(128), table).query(`
+        SELECT 1 AS ok
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_SCHEMA = @SchemaName
+          AND TABLE_NAME = @TableName
+      `);
+
+    if (!existsResult.recordset?.length) {
+      throw new Error(`Table not found: ${schema}.${table}`);
+    }
+
+    const dbResult = await pool.request().query("SELECT DB_NAME() AS currentDb");
+    const currentDb = dbResult.recordset?.[0]?.currentDb || null;
+    const escapedSchema = escapeSqlIdentifier(schema);
+    const escapedTable = escapeSqlIdentifier(table);
+    const querySql = `SELECT TOP (@TopN) * FROM ${escapedSchema}.${escapedTable}`;
+
+    const response = await pool.request().input("TopN", mssql.Int, top).query(querySql);
+    const rows = response.recordset || [];
+    const columns = Object.keys(rows[0] || {});
+
+    debug.push("query.success", {
+      schema,
+      table,
+      top,
+      rowCount: rows.length,
+      columnCount: columns.length,
+      currentDb,
+    });
+
+    const debugPayload = debug.finalize("success", {
+      schema,
+      table,
+      top,
+      rowCount: rows.length,
+      columnCount: columns.length,
+      currentDb,
+    });
+    debug.push("response.sending", {
+      responseType: "success",
+      rowCount: rows.length,
+    });
+    res.json({
+      data: {
+        currentDb,
+        schema,
+        table,
+        fullName: `${schema}.${table}`,
+        top,
+        count: rows.length,
+        columns,
+        rows,
+      },
+      debug: debugPayload,
+    });
+  } catch (error) {
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.tablePreview", error, { traceId: debug.traceId });
     const debugPayload = debug.finalize("error");
     debug.push("response.sending", {
       responseType: "error",

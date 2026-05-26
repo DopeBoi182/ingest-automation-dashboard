@@ -32,6 +32,21 @@ async function getJsonNoCache(url, data) {
   });
 }
 
+async function postJsonNoCache(url, payload) {
+  return $.ajax({
+    url,
+    method: "POST",
+    data: JSON.stringify(payload || {}),
+    cache: false,
+    dataType: "json",
+    contentType: "application/json",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 function setRawOutput(payload) {
   $("#kometRawOutput").text(JSON.stringify(payload, null, 2));
 }
@@ -80,7 +95,71 @@ async function fetchKometTablePreview(tableName) {
   return payload;
 }
 
+async function getConnectionConfig() {
+  const response = await getJsonNoCache("./api/sqlsync/connection-config");
+  return response.data || {};
+}
+
+async function updateConnectionConfig(trustServerCertificate) {
+  const response = await postJsonNoCache("./api/sqlsync/connection-config", {
+    trustServerCertificate,
+  });
+  return response.data || {};
+}
+
+async function reconnectSqlConnection() {
+  const response = await postJsonNoCache("./api/sqlsync/reconnect", {});
+  return response.data || {};
+}
+
+function syncToggleFromConfig(config) {
+  const enabled = Boolean(config?.trustServerCertificate);
+  $("#kometTrustCertToggle").prop("checked", enabled);
+}
+
+async function applyTlsAndReconnect() {
+  const trustServerCertificate = $("#kometTrustCertToggle").is(":checked");
+  const updatedConfig = await updateConnectionConfig(trustServerCertificate);
+  const reconnectResult = await reconnectSqlConnection();
+  setRawOutput({
+    action: "apply_tls_and_reconnect",
+    config: updatedConfig,
+    reconnect: reconnectResult,
+  });
+  return reconnectResult;
+}
+
 $(document).ready(() => {
+  (async () => {
+    showStatus("Loading SQL connection config...");
+    try {
+      const config = await getConnectionConfig();
+      syncToggleFromConfig(config);
+      showStatus(
+        `Config loaded: trustServerCertificate=${config.trustServerCertificate ? "true" : "false"} (${config.trustServerCertificateSource || "env"})`
+      );
+    } catch (error) {
+      setRawOutputError(error);
+      showStatus(`Load SQL config failed: ${extractError(error)}`);
+    }
+  })();
+
+  $("#kometApplyTlsBtn").on("click", async () => {
+    const toggleText = $("#kometTrustCertToggle").is(":checked") ? "true" : "false";
+    showStatus(`Applying trustServerCertificate=${toggleText} and reconnecting...`);
+    try {
+      const result = await applyTlsAndReconnect();
+      const cfg = result?.config || {};
+      syncToggleFromConfig(cfg);
+      showStatus(
+        `Reconnected: ${result.serverName || "-"} / ${result.dbName || "-"} (trustServerCertificate=${cfg.trustServerCertificate ? "true" : "false"})`
+      );
+    } catch (error) {
+      setRawOutputError(error);
+      showStatus(`Reconnect failed: ${extractError(error)}`);
+    }
+  });
+
   $("#kometConnectionCheckBtn").on("click", async () => {
     showStatus("Checking SQL Server connection...");
     try {

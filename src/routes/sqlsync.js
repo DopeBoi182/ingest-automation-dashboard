@@ -3,7 +3,13 @@ const express = require("express");
 const multer = require("multer");
 const mssql = require("mssql");
 const XLSX = require("xlsx");
-const { connectSqlServer, getSqlServerPool } = require("../config/sqlserver");
+const {
+  connectSqlServer,
+  getSqlServerPool,
+  reconnectSqlServer,
+  setSqlServerRuntimeTrustServerCertificate,
+  getSqlServerConnectionConfig,
+} = require("../config/sqlserver");
 
 const router = express.Router();
 const upload = multer({
@@ -319,6 +325,91 @@ router.get("/connection-check", async (req, res) => {
       responseType: "error",
       statusCode: 500,
     });
+    res.status(500).json({
+      message: "Request failed",
+      detail: error?.message || "Unexpected server error",
+      debug: debugPayload,
+    });
+  }
+});
+
+router.get("/connection-config", (_req, res) => {
+  res.json({ data: getSqlServerConnectionConfig() });
+});
+
+router.post("/connection-config", (req, res) => {
+  const hasValue = Object.prototype.hasOwnProperty.call(req.body || {}, "trustServerCertificate");
+  if (!hasValue) {
+    return res.status(400).json({
+      message: "trustServerCertificate is required in body.",
+    });
+  }
+
+  const inputValue = req.body.trustServerCertificate;
+  if (
+    inputValue !== null &&
+    typeof inputValue !== "boolean" &&
+    !["true", "false", "1", "0", "yes", "no", "on", "off"].includes(
+      String(inputValue).trim().toLowerCase()
+    )
+  ) {
+    return res.status(400).json({
+      message: "trustServerCertificate must be boolean or null.",
+    });
+  }
+
+  if (inputValue === null) {
+    setSqlServerRuntimeTrustServerCertificate(undefined);
+  } else {
+    setSqlServerRuntimeTrustServerCertificate(toBool(inputValue, false));
+  }
+
+  return res.json({
+    data: getSqlServerConnectionConfig(),
+  });
+});
+
+router.post("/reconnect", async (req, res) => {
+  const debug = createRouteDebug("komet.reconnect", req);
+  debug.push("request.received");
+  try {
+    debug.push("db.reconnect.begin");
+    await reconnectSqlServer();
+    debug.push("db.reconnect.success");
+    const pool = getSqlServerPool();
+    const response = await pool.request().query(`
+      SELECT
+        DB_NAME() AS dbName,
+        @@SERVERNAME AS serverName,
+        SYSDATETIMEOFFSET() AS nowAt
+    `);
+    const row = response.recordset?.[0] || {};
+    const config = getSqlServerConnectionConfig();
+    const debugPayload = debug.finalize("success", {
+      serverName: row.serverName || null,
+      dbName: row.dbName || null,
+      trustServerCertificate: config.trustServerCertificate,
+      trustServerCertificateSource: config.trustServerCertificateSource,
+    });
+    res.json({
+      data: {
+        connected: true,
+        serverName: row.serverName || null,
+        dbName: row.dbName || null,
+        nowAt: row.nowAt || null,
+        config,
+      },
+      debug: debugPayload,
+    });
+  } catch (error) {
+    debug.push("error", {
+      message: error?.message || "Unknown error",
+      code: error?.code || null,
+      number: error?.number || null,
+      originalError: error?.originalError?.info?.message || null,
+    });
+    logSqlError("komet.reconnect", error, { traceId: debug.traceId });
+    const debugPayload = debug.finalize("error");
     res.status(500).json({
       message: "Request failed",
       detail: error?.message || "Unexpected server error",

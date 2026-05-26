@@ -3,6 +3,7 @@ const env = require("./env");
 
 let sqlPool = null;
 let connectPromise = null;
+let runtimeTrustServerCertificate;
 
 function toBool(value, defaultValue) {
   if (value === undefined || value === null || value === "") return defaultValue;
@@ -61,6 +62,11 @@ function getMissingRequiredFields() {
 
 function buildSqlServerConfig() {
   const fromConnectionString = String(env.sqlServerConnectionString || "").trim();
+  const trustServerCertificate =
+    runtimeTrustServerCertificate === undefined
+      ? env.sqlServerTrustServerCertificate
+      : runtimeTrustServerCertificate;
+
   if (fromConnectionString) {
     const parsed = parseConnectionString(fromConnectionString);
     return {
@@ -71,7 +77,10 @@ function buildSqlServerConfig() {
       password: parsed.password,
       options: {
         encrypt: parsed.options.encrypt,
-        trustServerCertificate: parsed.options.trustServerCertificate,
+        trustServerCertificate:
+          runtimeTrustServerCertificate === undefined
+            ? parsed.options.trustServerCertificate
+            : runtimeTrustServerCertificate,
       },
       connectionTimeout: env.sqlServerConnectionTimeoutMs,
       requestTimeout: env.sqlServerRequestTimeoutMs,
@@ -91,7 +100,7 @@ function buildSqlServerConfig() {
     password: env.sqlServerPassword,
     options: {
       encrypt: env.sqlServerEncrypt,
-      trustServerCertificate: env.sqlServerTrustServerCertificate,
+      trustServerCertificate,
     },
     connectionTimeout: env.sqlServerConnectionTimeoutMs,
     requestTimeout: env.sqlServerRequestTimeoutMs,
@@ -134,6 +143,7 @@ async function connectSqlServer() {
       return sqlPool;
     })().catch((error) => {
       sqlPool = null;
+      connectPromise = null;
       throw error;
     });
   }
@@ -150,15 +160,49 @@ function getSqlServerPool() {
 }
 
 async function closeSqlServer() {
-  if (!sqlPool) return;
+  if (!sqlPool) {
+    connectPromise = null;
+    return;
+  }
   const pool = sqlPool;
   sqlPool = null;
   connectPromise = null;
   await pool.close();
 }
 
+async function reconnectSqlServer() {
+  await closeSqlServer();
+  return connectSqlServer();
+}
+
+function setSqlServerRuntimeTrustServerCertificate(value) {
+  if (value === undefined || value === null || value === "") {
+    runtimeTrustServerCertificate = undefined;
+    return;
+  }
+  runtimeTrustServerCertificate = Boolean(value);
+}
+
+function getSqlServerConnectionConfig() {
+  const config = buildSqlServerConfig();
+  return {
+    enabled: env.sqlServerEnabled,
+    connected: Boolean(sqlPool),
+    server: config.server,
+    port: config.port,
+    database: config.database,
+    encrypt: config.options.encrypt,
+    trustServerCertificate: config.options.trustServerCertificate,
+    trustServerCertificateSource:
+      runtimeTrustServerCertificate === undefined ? "env" : "runtime",
+  };
+}
+
 module.exports = {
   connectSqlServer,
   getSqlServerPool,
   closeSqlServer,
+  reconnectSqlServer,
+  setSqlServerRuntimeTrustServerCertificate,
+  getSqlServerConnectionConfig,
 };

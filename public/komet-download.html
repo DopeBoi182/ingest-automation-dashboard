@@ -18,7 +18,7 @@
       </div>
 
       <section class="card">
-        <h2>Single-Link Download Tester</h2>
+        <h2>Komet Download Runner</h2>
         <form id="kometDownloadForm">
           <div class="grid-2">
             <label>
@@ -52,15 +52,87 @@
               type="text"
               id="singlePathInput"
               placeholder="App_Data/Document/2013/11/AB0482.pdf"
-              required
             />
+          </label>
+
+          <label>
+            Relative File Paths (comma/newline separated)
+            <textarea
+              id="multiPathsInput"
+              rows="5"
+              placeholder="App_Data/Document/2011/06/AA2408.pdf,&#10;App_Data/Document/2011/06/AA2409.pdf"
+            ></textarea>
           </label>
 
           <div class="actions">
             <button type="submit" id="downloadTestBtn">Download Test</button>
+            <button type="button" id="startBatchBtn">Start Batch</button>
             <button type="button" id="clearLogsBtn" class="secondary">Clear Logs</button>
           </div>
         </form>
+      </section>
+
+      <section class="card">
+        <h2>Batch Progress</h2>
+        <div id="batchSummaryText" class="status">No active run.</div>
+      </section>
+
+      <section class="card">
+        <div class="tab-buttons">
+          <button type="button" id="processingTabBtn" class="tab-btn active">Processing</button>
+          <button type="button" id="downloadedTabBtn" class="tab-btn secondary">Downloaded</button>
+        </div>
+
+        <div id="processingTabPanel" class="tab-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Relative Path</th>
+                  <th>Status</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody id="processingTableBody">
+                <tr>
+                  <td colspan="4">No run yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" id="processingPrevBtn" class="secondary">Prev</button>
+            <button type="button" id="processingNextBtn" class="secondary">Next</button>
+          </div>
+          <p id="processingPageText" class="status">Page 1/1</p>
+        </div>
+
+        <div id="downloadedTabPanel" class="tab-panel is-hidden">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Bytes</th>
+                  <th>Modified</th>
+                  <th>Download</th>
+                </tr>
+              </thead>
+              <tbody id="downloadedTableBody">
+                <tr>
+                  <td colspan="4">No files yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" id="downloadedRefreshBtn" class="secondary">Refresh</button>
+            <button type="button" id="downloadedPrevBtn" class="secondary">Prev</button>
+            <button type="button" id="downloadedNextBtn" class="secondary">Next</button>
+          </div>
+          <p id="downloadedPageText" class="status">Page 1/1</p>
+        </div>
       </section>
 
       <section class="card">

@@ -112,6 +112,10 @@ const env = {
   sqlServerPoolMin: toNumber(process.env.SQLSERVER_POOL_MIN, 0),
   sqlServerPoolIdleTimeoutMs: toNumber(process.env.SQLSERVER_POOL_IDLE_TIMEOUT_MS, 30000),
   kometDisabled: toBool(process.env.KOMET_DISABLED, false),
+  kometSyncUploadEndpoint:
+    process.env.KOMET_SYNC_UPLOAD_ENDPOINT ||
+    "https://apps.pertamina.com/plh/repo/api/v1/file-metadata/upload",
+  kometSyncDefaultFolderId: process.env.KOMET_SYNC_DEFAULT_FOLDER_ID || "",
 };
 
 env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);

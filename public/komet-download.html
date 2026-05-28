@@ -109,6 +109,25 @@
         </div>
 
         <div id="downloadedTabPanel" class="tab-panel is-hidden">
+          <div class="grid-2">
+            <label>
+              Bearer Token (for sync)
+              <textarea
+                id="syncTokenInput"
+                rows="3"
+                placeholder="eyJhbGciOi..."
+              ></textarea>
+            </label>
+            <label>
+              FolderId (target)
+              <input
+                type="text"
+                id="syncFolderIdInput"
+                placeholder="62B1B156-6876-4826-B432-F49AB6D6188B"
+              />
+            </label>
+          </div>
+          <p class="status">Sync Path will use current Download Target Dir.</p>
           <div class="table-wrap">
             <table>
               <thead>
@@ -116,22 +135,27 @@
                   <th>Name</th>
                   <th>Bytes</th>
                   <th>Modified</th>
+                  <th>Sync Status</th>
+                  <th>Sync Result</th>
                   <th>Download</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="downloadedTableBody">
                 <tr>
-                  <td colspan="4">No files yet.</td>
+                  <td colspan="7">No files yet.</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="actions">
             <button type="button" id="downloadedRefreshBtn" class="secondary">Refresh</button>
+            <button type="button" id="syncBulkBtn">Bulk Sync All In Folder</button>
             <button type="button" id="downloadedPrevBtn" class="secondary">Prev</button>
             <button type="button" id="downloadedNextBtn" class="secondary">Next</button>
           </div>
           <p id="downloadedPageText" class="status">Page 1/1</p>
+          <p id="syncSummaryText" class="status">No sync run.</p>
         </div>
       </section>
 

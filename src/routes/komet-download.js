@@ -5,6 +5,8 @@ const http = require("http");
 const https = require("https");
 const path = require("path");
 const express = require("express");
+const env = require("../config/env");
+const { uploadFileToKometSync } = require("../services/kometSyncClient");
 
 const router = express.Router();
 
@@ -13,6 +15,8 @@ const REPORT_ROOT = path.resolve(DOWNLOAD_ROOT, "reports");
 const MAX_BATCH_ITEMS = 5000;
 const MAX_PAGE_SIZE = 200;
 const batchRuns = new Map();
+const syncRuns = new Map();
+const syncFileStates = new Map();
 
 function logKometInfo(action, meta = {}) {
   // eslint-disable-next-line no-console
@@ -98,6 +102,10 @@ async function getUniqueFilePath(baseDir, originalFileName) {
 
 function normalizeWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function cleanFileName(value) {
+  return String(value || "").trim();
 }
 
 function cleanRelativePath(value) {
@@ -187,6 +195,87 @@ function toRunItemResponse(runId, item) {
     downloadUrl: canDownload ? `./api/komet-download/batch/${runId}/files/${item.itemId}` : null,
     startedAt: item.startedAt || null,
     completedAt: item.completedAt || null,
+  };
+}
+
+function toSyncRunItemResponse(item) {
+  return {
+    itemId: item.itemId,
+    index: item.index,
+    name: item.name,
+    status: item.status,
+    result: item.result || null,
+    error: item.error || null,
+    startedAt: item.startedAt || null,
+    completedAt: item.completedAt || null,
+  };
+}
+
+function buildSyncFileKey(downloadDir, name) {
+  return `${cleanRelativePath(downloadDir)}::${cleanFileName(name).toLowerCase()}`;
+}
+
+function setSyncFileState(downloadDir, name, patch = {}) {
+  const key = buildSyncFileKey(downloadDir, name);
+  syncFileStates.set(key, {
+    status: patch.status || "queued",
+    result: patch.result || null,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function getSyncFileState(downloadDir, name) {
+  return syncFileStates.get(buildSyncFileKey(downloadDir, name)) || null;
+}
+
+async function listDownloadedFiles(targetDir) {
+  const entries = await fsp.readdir(targetDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const name = cleanFileName(entry.name);
+    if (!name) continue;
+    const fullPath = path.join(targetDir, entry.name);
+    // eslint-disable-next-line no-await-in-loop
+    const stat = await fsp.stat(fullPath);
+    files.push({
+      name,
+      filePath: fullPath,
+      bytes: stat.size,
+      modifiedAt: stat.mtime.toISOString(),
+    });
+  }
+  return files;
+}
+
+async function resolveSafeDownloadedFile(downloadDir, rawName) {
+  const cleanDownloadDir = cleanRelativePath(downloadDir);
+  const cleanName = cleanFileName(rawName);
+  if (!cleanDownloadDir) {
+    throw Object.assign(new Error("downloadDir is required."), { status: 400 });
+  }
+  if (!cleanName) {
+    throw Object.assign(new Error("name is required."), { status: 400 });
+  }
+
+  const targetDir = ensureSafeDownloadDir(cleanDownloadDir);
+  const candidate = path.resolve(targetDir, cleanName);
+  if (candidate !== targetDir && !candidate.startsWith(`${targetDir}${path.sep}`)) {
+    throw Object.assign(new Error("Invalid file path."), { status: 400 });
+  }
+  const exists = await fsp
+    .access(candidate)
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    throw Object.assign(new Error("File not found."), { status: 404 });
+  }
+
+  return {
+    downloadDir: cleanDownloadDir,
+    targetDir,
+    name: cleanName,
+    filePath: candidate,
   };
 }
 
@@ -303,6 +392,68 @@ async function processBatchRun(run) {
     failed: run.failed,
     skipped: run.skipped,
     reportPaths: run.reportPaths,
+  });
+}
+
+async function processSyncRun(run) {
+  logKometInfo("sync.batch.start", {
+    runId: run.runId,
+    downloadDir: run.downloadDir,
+    total: run.total,
+  });
+
+  for (const item of run.items) {
+    item.status = "processing";
+    item.startedAt = new Date().toISOString();
+    setSyncFileState(run.downloadDir, item.name, {
+      status: "processing",
+      result: `Processing ${item.index}/${run.total}`,
+    });
+
+    try {
+      const uploadResponse = await uploadFileToKometSync({
+        token: run.token,
+        folderId: run.folderId,
+        fileName: item.name,
+        filePath: item.filePath,
+        pathValue: run.pathValue,
+      });
+      item.status = "synced";
+      item.result = `HTTP ${uploadResponse.status}`;
+      run.success += 1;
+      setSyncFileState(run.downloadDir, item.name, {
+        status: "synced",
+        result: item.result,
+      });
+    } catch (error) {
+      item.status = "failed";
+      item.error = error?.message || "Sync failed";
+      run.failed += 1;
+      setSyncFileState(run.downloadDir, item.name, {
+        status: "failed",
+        result: item.error,
+      });
+      logKometError("sync.batch.item.failed", error, {
+        runId: run.runId,
+        name: item.name,
+        index: item.index,
+      });
+    } finally {
+      item.completedAt = new Date().toISOString();
+      run.processed += 1;
+      run.updatedAt = item.completedAt;
+    }
+  }
+
+  run.completedAt = new Date().toISOString();
+  run.state = "completed";
+  logKometInfo("sync.batch.complete", {
+    runId: run.runId,
+    total: run.total,
+    processed: run.processed,
+    success: run.success,
+    failed: run.failed,
+    skipped: run.skipped,
   });
 }
 
@@ -578,7 +729,7 @@ router.get("/batch/:runId/files/:itemId", async (req, res) => {
 
 router.get("/downloaded", async (req, res) => {
   try {
-    const downloadDir = String(req.query?.downloadDir || "").trim();
+    const downloadDir = cleanRelativePath(req.query?.downloadDir || "");
     if (!downloadDir) return res.status(400).json({ message: "downloadDir is required." });
 
     const targetDir = ensureSafeDownloadDir(downloadDir);
@@ -599,23 +750,21 @@ router.get("/downloaded", async (req, res) => {
       });
     }
 
-    const entries = await fsp.readdir(targetDir, { withFileTypes: true });
-    const files = [];
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const name = entry.name;
-      const fullPath = path.join(targetDir, name);
-      // eslint-disable-next-line no-await-in-loop
-      const stat = await fsp.stat(fullPath);
-      files.push({
-        name,
-        bytes: stat.size,
-        modifiedAt: stat.mtime.toISOString(),
+    const fileEntries = await listDownloadedFiles(targetDir);
+    const files = fileEntries.map((entry) => {
+      const syncState = getSyncFileState(downloadDir, entry.name);
+      return {
+        name: entry.name,
+        bytes: entry.bytes,
+        modifiedAt: entry.modifiedAt,
+        syncStatus: syncState?.status || "idle",
+        syncResult: syncState?.result || null,
+        syncUpdatedAt: syncState?.updatedAt || null,
         downloadUrl: `./api/komet-download/downloaded/file?downloadDir=${encodeURIComponent(
           downloadDir
-        )}&name=${encodeURIComponent(name)}`,
-      });
-    }
+        )}&name=${encodeURIComponent(entry.name)}`,
+      };
+    });
 
     files.sort((a, b) => Date.parse(b.modifiedAt) - Date.parse(a.modifiedAt));
     const page = parsePage(req.query?.page, 1);
@@ -642,23 +791,190 @@ router.get("/downloaded", async (req, res) => {
 
 router.get("/downloaded/file", async (req, res) => {
   try {
-    const downloadDir = String(req.query?.downloadDir || "").trim();
-    const name = normalizeWhitespace(req.query?.name || "");
-    if (!downloadDir) return res.status(400).json({ message: "downloadDir is required." });
-    if (!name) return res.status(400).json({ message: "name is required." });
-
-    const targetDir = ensureSafeDownloadDir(downloadDir);
-    const filePath = path.resolve(targetDir, name);
-    if (filePath !== targetDir && !filePath.startsWith(`${targetDir}${path.sep}`)) {
-      return res.status(400).json({ message: "Invalid file path." });
-    }
-    return res.download(filePath, name);
+    const fileInfo = await resolveSafeDownloadedFile(req.query?.downloadDir, req.query?.name);
+    return res.download(fileInfo.filePath, fileInfo.name);
   } catch (error) {
     return res.status(error?.status || 500).json({
       message: "Request failed",
       detail: error?.detail || error?.message || "Unexpected server error",
     });
   }
+});
+
+router.post("/sync/single", async (req, res) => {
+  try {
+    const token = normalizeWhitespace(req.body?.token || "");
+    const folderId = normalizeWhitespace(req.body?.folderId || env.kometSyncDefaultFolderId);
+    const fileInfo = await resolveSafeDownloadedFile(req.body?.downloadDir, req.body?.name);
+    const pathValue = fileInfo.downloadDir;
+
+    if (!token) return res.status(400).json({ message: "token is required." });
+    if (!folderId) return res.status(400).json({ message: "folderId is required." });
+
+    setSyncFileState(fileInfo.downloadDir, fileInfo.name, {
+      status: "processing",
+      result: "Sync in progress",
+    });
+
+    const upstream = await uploadFileToKometSync({
+      token,
+      folderId,
+      fileName: fileInfo.name,
+      filePath: fileInfo.filePath,
+      pathValue,
+    });
+
+    setSyncFileState(fileInfo.downloadDir, fileInfo.name, {
+      status: "synced",
+      result: `HTTP ${upstream.status}`,
+    });
+
+    return res.json({
+      data: {
+        name: fileInfo.name,
+        downloadDir: fileInfo.downloadDir,
+        status: "synced",
+        result: `HTTP ${upstream.status}`,
+      },
+    });
+  } catch (error) {
+    const downloadDir = cleanRelativePath(req.body?.downloadDir || "");
+    const name = cleanFileName(req.body?.name || "");
+    if (downloadDir && name) {
+      setSyncFileState(downloadDir, name, {
+        status: "failed",
+        result: error?.message || "Sync failed",
+      });
+    }
+    return res.status(error?.status || 500).json({
+      message: "Request failed",
+      detail: error?.detail || error?.message || "Unexpected server error",
+    });
+  }
+});
+
+router.post("/sync/batch/start", async (req, res) => {
+  const traceId = crypto.randomUUID();
+  try {
+    const token = normalizeWhitespace(req.body?.token || "");
+    const folderId = normalizeWhitespace(req.body?.folderId || env.kometSyncDefaultFolderId);
+    const downloadDir = cleanRelativePath(req.body?.downloadDir || "");
+    if (!token) return res.status(400).json({ message: "token is required." });
+    if (!folderId) return res.status(400).json({ message: "folderId is required." });
+    if (!downloadDir) return res.status(400).json({ message: "downloadDir is required." });
+
+    const targetDir = ensureSafeDownloadDir(downloadDir);
+    const exists = await fsp
+      .access(targetDir)
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) return res.status(404).json({ message: "downloadDir does not exist." });
+
+    const files = await listDownloadedFiles(targetDir);
+    if (!files.length) return res.status(400).json({ message: "No files found in downloadDir." });
+    if (files.length > MAX_BATCH_ITEMS) {
+      return res.status(400).json({
+        message: `File count exceeds max allowed items (${MAX_BATCH_ITEMS}).`,
+      });
+    }
+
+    const runId = crypto.randomUUID();
+    const run = {
+      runId,
+      traceId,
+      state: "running",
+      token,
+      folderId,
+      downloadDir,
+      targetDir,
+      pathValue: downloadDir,
+      total: files.length,
+      processed: 0,
+      success: 0,
+      failed: 0,
+      skipped: 0,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: null,
+      items: files
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((entry, index) => ({
+          itemId: crypto.randomUUID(),
+          index: index + 1,
+          name: entry.name,
+          filePath: entry.filePath,
+          status: "queued",
+          result: null,
+          error: null,
+          startedAt: null,
+          completedAt: null,
+        })),
+    };
+
+    for (const item of run.items) {
+      setSyncFileState(downloadDir, item.name, {
+        status: "queued",
+        result: "Queued for bulk sync",
+      });
+    }
+
+    syncRuns.set(runId, run);
+    setImmediate(async () => {
+      try {
+        await processSyncRun(run);
+      } catch (error) {
+        run.state = "failed";
+        run.completedAt = new Date().toISOString();
+        logKometError("sync.batch.fatal", error, { runId: run.runId });
+      }
+    });
+
+    return res.json({
+      data: {
+        runId,
+        total: run.total,
+        state: run.state,
+      },
+      debug: { traceId },
+    });
+  } catch (error) {
+    return res.status(error?.status || 500).json({
+      message: "Request failed",
+      detail: error?.detail || error?.message || "Unexpected server error",
+      debug: { traceId },
+    });
+  }
+});
+
+router.get("/sync/batch/:runId/status", async (req, res) => {
+  const runId = normalizeWhitespace(req.params?.runId || "");
+  const run = syncRuns.get(runId);
+  if (!run) return res.status(404).json({ message: "runId not found." });
+
+  const page = parsePage(req.query?.page, 1);
+  const limit = parseLimit(req.query?.limit, 25);
+  const paged = paginate(run.items, page, limit);
+  return res.json({
+    data: {
+      summary: {
+        runId: run.runId,
+        state: run.state,
+        total: run.total,
+        processed: run.processed,
+        success: run.success,
+        failed: run.failed,
+        skipped: run.skipped,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        elapsedMs: run.completedAt ? Date.parse(run.completedAt) - Date.parse(run.startedAt) : null,
+      },
+      items: paged.items.map((item) => toSyncRunItemResponse(item)),
+      page: paged.page,
+      limit: paged.limit,
+      totalItems: paged.totalItems,
+      totalPages: paged.totalPages,
+    },
+  });
 });
 
 module.exports = router;

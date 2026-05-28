@@ -2,6 +2,7 @@ const POLL_INTERVAL_MS = 1500;
 
 const uiState = {
   runId: null,
+  syncRunId: null,
   processingPage: 1,
   processingLimit: 25,
   processingTotalPages: 1,
@@ -10,6 +11,8 @@ const uiState = {
   downloadedTotalPages: 1,
   isPolling: false,
   pollTimer: null,
+  isSyncPolling: false,
+  syncPollTimer: null,
   activeTab: "processing",
   lastDownloadDir: "",
 };
@@ -101,6 +104,8 @@ function readFormPayload() {
     downloadDir: normalizeWhitespace($("#downloadDirInput").val()),
     singlePath: cleanRelativePath($("#singlePathInput").val()),
     paths: parsePathsInput($("#multiPathsInput").val()),
+    syncToken: normalizeWhitespace($("#syncTokenInput").val()),
+    syncFolderId: normalizeWhitespace($("#syncFolderIdInput").val()),
   };
   uiState.lastDownloadDir = payload.downloadDir;
   return payload;
@@ -187,7 +192,7 @@ function renderProcessingRows(items) {
 
 function renderDownloadedRows(files) {
   if (!files.length) {
-    $("#downloadedTableBody").html('<tr><td colspan="4">No files found.</td></tr>');
+    $("#downloadedTableBody").html('<tr><td colspan="7">No files found.</td></tr>');
     return;
   }
   const rows = files
@@ -196,7 +201,12 @@ function renderDownloadedRows(files) {
         <td class="url-cell">${item.name}</td>
         <td>${item.bytes || 0}</td>
         <td>${item.modifiedAt || "-"}</td>
+        <td>${item.syncStatus || "idle"}</td>
+        <td class="url-cell">${item.syncResult || "-"}</td>
         <td><a href="${item.downloadUrl}" target="_blank" rel="noopener">Download</a></td>
+        <td><button type="button" class="sync-one-btn" data-name="${encodeURIComponent(
+          item.name
+        )}">Sync</button></td>
       </tr>`;
     })
     .join("");
@@ -230,11 +240,27 @@ function stopPolling() {
   }
 }
 
+function stopSyncPolling() {
+  uiState.isSyncPolling = false;
+  if (uiState.syncPollTimer) {
+    clearTimeout(uiState.syncPollTimer);
+    uiState.syncPollTimer = null;
+  }
+}
+
 function schedulePolling() {
   if (!uiState.isPolling || !uiState.runId) return;
   uiState.pollTimer = setTimeout(async () => {
     await fetchBatchStatus(false);
     schedulePolling();
+  }, POLL_INTERVAL_MS);
+}
+
+function scheduleSyncPolling() {
+  if (!uiState.isSyncPolling || !uiState.syncRunId) return;
+  uiState.syncPollTimer = setTimeout(async () => {
+    await fetchSyncBatchStatus(false);
+    scheduleSyncPolling();
   }, POLL_INTERVAL_MS);
 }
 
@@ -286,6 +312,42 @@ async function fetchDownloadedList() {
     const detail = extractError(error);
     logKometError("downloaded.list.error", error, { detail });
     showStatus(`Failed loading downloaded list: ${detail}`);
+  }
+}
+
+function renderSyncSummary(summary) {
+  if (!summary) {
+    $("#syncSummaryText").text("No sync run.");
+    return;
+  }
+  $("#syncSummaryText").text(
+    `sync state: ${summary.state} | progress: ${summary.processed}/${summary.total} | success: ${summary.success} | failed: ${summary.failed} | skipped: ${summary.skipped || 0}`
+  );
+}
+
+async function fetchSyncBatchStatus(isManual = false) {
+  if (!uiState.syncRunId) return;
+  try {
+    const response = await getJsonNoCache(`./api/komet-download/sync/batch/${uiState.syncRunId}/status`, {
+      page: uiState.downloadedPage,
+      limit: uiState.downloadedLimit,
+    });
+    const data = response?.data || {};
+    const summary = data.summary || null;
+    renderSyncSummary(summary);
+    setRawOutput(response);
+    await fetchDownloadedList();
+
+    if (summary?.state === "completed" || summary?.state === "failed") {
+      stopSyncPolling();
+      showStatus(`Sync batch finished: ${summary.state}`);
+    } else if (isManual) {
+      showStatus(`Sync running: ${summary?.processed || 0}/${summary?.total || 0}`);
+    }
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("sync.batch.status.error", error, { runId: uiState.syncRunId, detail });
+    showStatus(`Failed fetching sync status: ${detail}`);
   }
 }
 
@@ -367,6 +429,84 @@ async function startBatchDownload() {
   }
 }
 
+async function syncSingleFile(fileName) {
+  const payload = readFormPayload();
+  if (!payload.downloadDir) {
+    showStatus("downloadDir is required.");
+    return;
+  }
+  if (!payload.syncToken) {
+    showStatus("Sync token is required.");
+    return;
+  }
+
+  try {
+    showStatus(`Syncing file: ${fileName}`);
+    const response = await postJsonNoCache("./api/komet-download/sync/single", {
+      downloadDir: payload.downloadDir,
+      name: fileName,
+      token: payload.syncToken,
+      folderId: payload.syncFolderId || null,
+    });
+    setRawOutput(response);
+    logKometInfo("sync.single.success", {
+      name: fileName,
+      downloadDir: payload.downloadDir,
+    });
+    showStatus(`Sync success: ${fileName}`);
+    await fetchDownloadedList();
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("sync.single.error", error, {
+      name: fileName,
+      downloadDir: payload.downloadDir,
+      detail,
+    });
+    showStatus(`Sync failed: ${detail}`);
+  }
+}
+
+async function startBulkSync() {
+  const payload = readFormPayload();
+  if (!payload.downloadDir) {
+    showStatus("downloadDir is required.");
+    return;
+  }
+  if (!payload.syncToken) {
+    showStatus("Sync token is required.");
+    return;
+  }
+
+  try {
+    showStatus("Starting bulk sync...");
+    const response = await postJsonNoCache("./api/komet-download/sync/batch/start", {
+      downloadDir: payload.downloadDir,
+      token: payload.syncToken,
+      folderId: payload.syncFolderId || null,
+    });
+    const data = response?.data || {};
+    uiState.syncRunId = data.runId || null;
+    setRawOutput(response);
+    logKometInfo("sync.batch.started", {
+      runId: uiState.syncRunId,
+      total: data.total || 0,
+    });
+
+    if (!uiState.syncRunId) {
+      throw new Error("Missing sync runId from response.");
+    }
+
+    stopSyncPolling();
+    uiState.isSyncPolling = true;
+    await fetchSyncBatchStatus(true);
+    scheduleSyncPolling();
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("sync.batch.start.error", error, { detail });
+    showStatus(`Failed starting sync batch: ${detail}`);
+  }
+}
+
 function setActiveTab(tabName) {
   uiState.activeTab = tabName;
   const isProcessing = tabName === "processing";
@@ -416,6 +556,12 @@ $(document).ready(() => {
     await fetchDownloadedList();
   });
   $("#downloadedRefreshBtn").on("click", fetchDownloadedList);
+  $("#syncBulkBtn").on("click", startBulkSync);
+  $("#downloadedTableBody").on("click", ".sync-one-btn", async (event) => {
+    const encodedName = String($(event.currentTarget).data("name") || "");
+    const fileName = decodeURIComponent(encodedName);
+    await syncSingleFile(fileName);
+  });
 
   logKometInfo("page.ready");
 });

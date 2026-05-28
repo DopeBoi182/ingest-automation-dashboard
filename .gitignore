@@ -10,3 +10,5 @@ coverage/
 dist/
 .DS_Store
 Thumbs.db
+downloads/.gitignore
+uploads/.gitignore

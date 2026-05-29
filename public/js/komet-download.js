@@ -1,4 +1,5 @@
 const POLL_INTERVAL_MS = 1500;
+const FORM_STATE_STORAGE_KEY = "kometDownloadFormStateV1";
 
 const uiState = {
   runId: null,
@@ -108,7 +109,28 @@ function readFormPayload() {
     syncFolderId: normalizeWhitespace($("#syncFolderIdInput").val()),
   };
   uiState.lastDownloadDir = payload.downloadDir;
+  try {
+    localStorage.setItem(FORM_STATE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore localStorage failures
+  }
   return payload;
+}
+
+function loadFormPayloadFromStorage() {
+  try {
+    const raw = localStorage.getItem(FORM_STATE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    $("#baseUrlInput").val(parsed.baseUrl || "");
+    $("#cookieInput").val(parsed.cookies || "");
+    $("#downloadDirInput").val(parsed.downloadDir || "");
+    $("#syncTokenInput").val(parsed.syncToken || "");
+    $("#syncFolderIdInput").val(parsed.syncFolderId || "");
+    uiState.lastDownloadDir = normalizeWhitespace(parsed.downloadDir || "");
+  } catch {
+    // ignore parse/storage errors
+  }
 }
 
 function validateBasePayload(payload) {
@@ -312,6 +334,46 @@ async function fetchDownloadedList() {
     const detail = extractError(error);
     logKometError("downloaded.list.error", error, { detail });
     showStatus(`Failed loading downloaded list: ${detail}`);
+  }
+}
+
+async function restorePersistedState() {
+  const payload = readFormPayload();
+  if (!payload.downloadDir) return;
+
+  try {
+    const response = await getJsonNoCache("./api/komet-download/state", {
+      downloadDir: payload.downloadDir,
+    });
+    const data = response?.data || {};
+    const batch = data.batch || null;
+    const sync = data.sync || null;
+
+    if (batch?.runId) {
+      uiState.runId = batch.runId;
+      uiState.processingPage = 1;
+      await fetchBatchStatus(true);
+      if (batch.summary?.state === "running") {
+        stopPolling();
+        uiState.isPolling = true;
+        schedulePolling();
+      }
+    }
+
+    if (sync?.runId) {
+      uiState.syncRunId = sync.runId;
+      if (sync.summary?.state === "running") {
+        stopSyncPolling();
+        uiState.isSyncPolling = true;
+        scheduleSyncPolling();
+      }
+      await fetchSyncBatchStatus(true);
+    } else {
+      await fetchDownloadedList();
+    }
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("state.restore.error", error, { detail });
   }
 }
 
@@ -528,11 +590,16 @@ function clearLogsAndOutput() {
 }
 
 $(document).ready(() => {
+  loadFormPayloadFromStorage();
+
   $("#kometDownloadForm").on("submit", runDownloadTest);
   $("#startBatchBtn").on("click", startBatchDownload);
   $("#clearLogsBtn").on("click", clearLogsAndOutput);
 
-  $("#processingTabBtn").on("click", () => setActiveTab("processing"));
+  $("#processingTabBtn").on("click", async () => {
+    setActiveTab("processing");
+    await fetchBatchStatus(true);
+  });
   $("#downloadedTabBtn").on("click", async () => {
     setActiveTab("downloaded");
     await fetchDownloadedList();
@@ -564,4 +631,7 @@ $(document).ready(() => {
   });
 
   logKometInfo("page.ready");
+  restorePersistedState().catch((error) => {
+    logKometError("page.restore.error", error, { detail: extractError(error) });
+  });
 });

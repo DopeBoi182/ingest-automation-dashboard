@@ -13,6 +13,11 @@ let lowdbModulesPromise = null;
 const defaultData = {
   jobs: [],
   setting: null,
+  kometDownload: {
+    batchRuns: [],
+    syncRuns: [],
+    syncFileStates: [],
+  },
 };
 
 let writeQueue = Promise.resolve();
@@ -28,9 +33,18 @@ function generateId() {
 
 function normalizeDataShape(raw) {
   const data = raw && typeof raw === "object" ? raw : {};
+  const kometDownload =
+    data.kometDownload && typeof data.kometDownload === "object" ? data.kometDownload : {};
   return {
     jobs: Array.isArray(data.jobs) ? data.jobs : [],
     setting: data.setting || null,
+    kometDownload: {
+      batchRuns: Array.isArray(kometDownload.batchRuns) ? kometDownload.batchRuns : [],
+      syncRuns: Array.isArray(kometDownload.syncRuns) ? kometDownload.syncRuns : [],
+      syncFileStates: Array.isArray(kometDownload.syncFileStates)
+        ? kometDownload.syncFileStates
+        : [],
+    },
   };
 }
 

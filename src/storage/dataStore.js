@@ -2,7 +2,6 @@ const fs = require("fs/promises");
 const { constants: fsConstants } = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const os = require("os");
 const env = require("../config/env");
 
 let dataFilePath = env.dataFile;
@@ -74,6 +73,17 @@ function isPermissionError(error) {
   return ["EACCES", "EPERM", "EROFS"].includes(error?.code);
 }
 
+function createStorageAccessError(error, phase = "access") {
+  const code = error?.code || "UNKNOWN";
+  const wrapped = new Error(
+    `[DataStore] Cannot ${phase} DATA_FILE at "${dataFilePath}" (${code}). ` +
+      "Fix DATA_FILE path/permissions. Fallback storage is disabled."
+  );
+  wrapped.code = code;
+  wrapped.cause = error;
+  return wrapped;
+}
+
 async function createDb(filePath) {
   const { Low, JSONFile } = await loadLowdbModules();
   const adapter = new JSONFile(filePath);
@@ -84,20 +94,6 @@ async function createDb(filePath) {
   return instance;
 }
 
-async function switchToFallbackPath(error) {
-  const fallbackPath = path.join(os.tmpdir(), "automation_ai_ingestion", "storage.json");
-  if (dataFilePath === fallbackPath) throw error;
-
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[DataStore] Cannot access DATA_FILE at "${dataFilePath}" (${error.code}). Falling back to "${fallbackPath}".`
-  );
-  dataFilePath = fallbackPath;
-  db = null;
-  dbReadyPromise = null;
-  await ensureDataFile(dataFilePath);
-}
-
 async function resolveDb() {
   if (!dbReadyPromise) {
     dbReadyPromise = (async () => {
@@ -105,9 +101,10 @@ async function resolveDb() {
         await ensureDataFile(dataFilePath);
         db = await createDb(dataFilePath);
       } catch (error) {
-        if (!isPermissionError(error)) throw error;
-        await switchToFallbackPath(error);
-        db = await createDb(dataFilePath);
+        if (isPermissionError(error)) {
+          throw createStorageAccessError(error, "initialize");
+        }
+        throw error;
       }
       return db;
     })();
@@ -116,15 +113,14 @@ async function resolveDb() {
 }
 
 async function readData() {
-  let activeDb;
+  const activeDb = await resolveDb();
   try {
-    activeDb = await resolveDb();
     await activeDb.read();
   } catch (error) {
-    if (!isPermissionError(error)) throw error;
-    await switchToFallbackPath(error);
-    activeDb = await resolveDb();
-    await activeDb.read();
+    if (isPermissionError(error)) {
+      throw createStorageAccessError(error, "read");
+    }
+    throw error;
   }
   activeDb.data = normalizeDataShape(activeDb.data);
   return deepClone(activeDb.data);
@@ -132,17 +128,15 @@ async function readData() {
 
 async function writeData(nextData) {
   const payload = normalizeDataShape(nextData);
-  let activeDb;
+  const activeDb = await resolveDb();
+  activeDb.data = payload;
   try {
-    activeDb = await resolveDb();
-    activeDb.data = payload;
     await activeDb.write();
   } catch (error) {
-    if (!isPermissionError(error)) throw error;
-    await switchToFallbackPath(error);
-    activeDb = await resolveDb();
-    activeDb.data = payload;
-    await activeDb.write();
+    if (isPermissionError(error)) {
+      throw createStorageAccessError(error, "write");
+    }
+    throw error;
   }
 }
 

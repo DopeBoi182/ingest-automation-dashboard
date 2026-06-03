@@ -589,11 +589,41 @@ function clearLogsAndOutput() {
   showStatus("Logs and output cleared.");
 }
 
+async function checkStorageHealth() {
+  const button = $("#checkStorageHealthBtn");
+  button.prop("disabled", true);
+  showStatus("Checking storage health...");
+  try {
+    const response = await getJsonNoCache("./api/health/storage");
+    const data = response?.data || {};
+    const storage = data.data || {};
+    setRawOutput(response);
+    logKometInfo("storage.health.success", {
+      dataFilePath: storage.dataFilePath || null,
+      hostname: storage.hostname || null,
+      pid: storage.pid || null,
+      timestamp: storage.timestamp || null,
+    });
+    showStatus(
+      `Storage OK: ${storage.dataFilePath || "-"} | ${storage.hostname || "-"}#${
+        storage.pid || "-"
+      }`
+    );
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("storage.health.error", error, { detail });
+    showStatus(`Storage health check failed: ${detail}`);
+  } finally {
+    button.prop("disabled", false);
+  }
+}
+
 $(document).ready(() => {
   loadFormPayloadFromStorage();
 
   $("#kometDownloadForm").on("submit", runDownloadTest);
   $("#startBatchBtn").on("click", startBatchDownload);
+  $("#checkStorageHealthBtn").on("click", checkStorageHealth);
   $("#clearLogsBtn").on("click", clearLogsAndOutput);
 
   $("#processingTabBtn").on("click", async () => {

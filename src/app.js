@@ -1,6 +1,8 @@
 const path = require("path");
+const os = require("os");
 const express = require("express");
 const env = require("./config/env");
+const { getDataFilePath } = require("./storage/dataStore");
 const jobsRouter = require("./routes/jobs");
 const settingsRouter = require("./routes/settings");
 const qnaRouter = require("./routes/qna");
@@ -30,6 +32,18 @@ apiRouter.use((_req, res, next) => {
 
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+apiRouter.get("/api/health/storage", (_req, res) => {
+  res.json({
+    status: "ok",
+    data: {
+      dataFilePath: getDataFilePath(),
+      pid: process.pid,
+      hostname: os.hostname(),
+      timestamp: new Date().toISOString(),
+    },
+  });
 });
 
 apiRouter.post("/callback", (req, res) => {

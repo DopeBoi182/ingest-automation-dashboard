@@ -1,7 +1,5 @@
 {
-  "jobs": [
-
-  ],
+  "jobs": [],
   "setting": {
     "key": "default",
     "knowledge_source": "repo-demo",

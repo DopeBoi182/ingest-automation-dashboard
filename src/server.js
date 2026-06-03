@@ -1,3 +1,4 @@
+const os = require("os");
 const app = require("./app");
 const env = require("./config/env");
 const { connectDb } = require("./config/db");
@@ -11,7 +12,7 @@ async function start() {
     );
     // eslint-disable-next-line no-console
     console.log(
-      `[Storage] ${dbInfo.type} (${dbInfo.file}) | [SQLServer] ${
+      `[Storage] ${dbInfo.type} (${dbInfo.file}) | [Instance] ${os.hostname()}#${process.pid} | [SQLServer] ${
         dbInfo.sqlServer.enabled ? "enabled and connected" : "disabled"
       }`
     );

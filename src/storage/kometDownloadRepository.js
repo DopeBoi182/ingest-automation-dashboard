@@ -113,6 +113,18 @@ async function getSyncFileState(downloadDir, name) {
   return data.kometDownload.syncFileStates.find((item) => item.key === key) || null;
 }
 
+async function getSyncFileStateMap(downloadDir) {
+  const normalized = cleanRelativePath(downloadDir);
+  const data = await readData();
+  const map = new Map();
+  for (const item of data.kometDownload.syncFileStates) {
+    if (cleanRelativePath(item.downloadDir) === normalized) {
+      map.set(cleanFileName(item.name).toLowerCase(), item);
+    }
+  }
+  return map;
+}
+
 module.exports = {
   upsertBatchRun,
   getBatchRun,
@@ -122,4 +134,5 @@ module.exports = {
   getLatestSyncRunByDownloadDir,
   upsertSyncFileState,
   getSyncFileState,
+  getSyncFileStateMap,
 };

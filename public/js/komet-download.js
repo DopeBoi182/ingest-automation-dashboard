@@ -1,5 +1,96 @@
 const POLL_INTERVAL_MS = 1500;
 const FORM_STATE_STORAGE_KEY = "kometDownloadFormStateV1";
+const SSE_MAX_ENTRIES = 500;
+
+let sseSource = null;
+let sseEntries = [];
+
+function setSseBadge(state) {
+  const badge = $("#sseStatusBadge");
+  const styles = {
+    connected: { text: "connected", bg: "#2d7a2d" },
+    connecting: { text: "connecting…", bg: "#555" },
+    error: { text: "error", bg: "#8b0000" },
+    closed: { text: "closed", bg: "#555" },
+  };
+  const s = styles[state] || styles.connecting;
+  badge.text(s.text).css("background", s.bg);
+}
+
+function renderSseLog() {
+  const container = document.getElementById("sseLogContainer");
+  if (!container) return;
+
+  const showInfo = $("#sseShowInfoChk").prop("checked");
+  const showError = $("#sseShowErrorChk").prop("checked");
+  const visible = sseEntries.filter((e) => {
+    if (e.level === "error") return showError;
+    return showInfo;
+  });
+
+  if (!visible.length) {
+    container.innerHTML = '<span style="color:#888;">No entries match current filters.</span>';
+    $("#sseLogCountText").text("0 entries visible");
+    return;
+  }
+
+  const lines = visible.map((entry) => {
+    const color = entry.level === "error" ? "#f97171" : "#7ec8e3";
+    const time = entry.at ? entry.at.replace("T", " ").replace("Z", "") : "";
+    const meta = Object.fromEntries(
+      Object.entries(entry).filter(([k]) => !["at", "level", "action"].includes(k))
+    );
+    const metaStr = Object.keys(meta).length
+      ? ` ${JSON.stringify(meta)}`
+      : "";
+    return `<span style="color:#888;">${time}</span> <span style="color:${color};font-weight:bold;">[${entry.level || "info"}]</span> <span style="color:#e5e5e5;">${entry.action || ""}</span><span style="color:#aaa;">${metaStr}</span>`;
+  });
+
+  container.innerHTML = lines.join("\n");
+  $("#sseLogCountText").text(`${visible.length} / ${sseEntries.length} entries`);
+
+  if ($("#sseAutoScrollChk").prop("checked")) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function sseAppendEntry(entry) {
+  sseEntries.push(entry);
+  if (sseEntries.length > SSE_MAX_ENTRIES) sseEntries.shift();
+  renderSseLog();
+}
+
+function connectSse() {
+  if (sseSource) {
+    sseSource.close();
+    sseSource = null;
+  }
+  setSseBadge("connecting");
+
+  const source = new EventSource("./api/komet-download/logs/stream");
+  sseSource = source;
+
+  source.onopen = () => setSseBadge("connected");
+
+  source.onmessage = (event) => {
+    try {
+      const entry = JSON.parse(event.data);
+      sseAppendEntry(entry);
+    } catch {
+      // ignore malformed frames
+    }
+  };
+
+  source.onerror = () => {
+    setSseBadge("error");
+    source.close();
+    sseSource = null;
+    // Auto-reconnect after 5s
+    setTimeout(() => {
+      if (!sseSource) connectSse();
+    }, 5000);
+  };
+}
 
 const uiState = {
   runId: null,
@@ -16,6 +107,7 @@ const uiState = {
   syncPollTimer: null,
   activeTab: "processing",
   lastDownloadDir: "",
+  rawFilesDir: "",
 };
 
 const logStore = [];
@@ -328,12 +420,15 @@ async function fetchDownloadedList() {
     });
     const data = response?.data || {};
     uiState.downloadedTotalPages = data.totalPages || 1;
-    renderDownloadedRows(data.files || []);
+    const files = data.files || [];
+    renderDownloadedRows(files);
     $("#downloadedPageText").text(`Page ${data.page || 1}/${data.totalPages || 1}`);
+    $("#syncBulkBtn").prop("disabled", files.length === 0);
   } catch (error) {
     const detail = extractError(error);
     logKometError("downloaded.list.error", error, { detail });
     showStatus(`Failed loading downloaded list: ${detail}`);
+    $("#syncBulkBtn").prop("disabled", true);
   }
 }
 
@@ -564,22 +659,74 @@ async function startBulkSync() {
     scheduleSyncPolling();
   } catch (error) {
     const detail = extractError(error);
-    logKometError("sync.batch.start.error", error, { detail });
-    showStatus(`Failed starting sync batch: ${detail}`);
+    logKometError("sync.batch.start.error", error, { detail, downloadDir: payload.downloadDir });
+    showStatus(`Failed starting sync batch: ${detail} (downloadDir: "${payload.downloadDir}")`);
+  }
+}
+
+function renderRawFileRows(entries) {
+  if (!entries.length) {
+    $("#rawFilesTableBody").html('<tr><td colspan="5">Empty folder.</td></tr>');
+    return;
+  }
+  const rows = entries
+    .map((entry) => {
+      const isDir = entry.type === "dir";
+      const actionCell = isDir
+        ? `<button type="button" class="raw-nav-btn" data-dir="${encodeURIComponent(entry.relPath)}">Open</button>`
+        : `<a href="${entry.downloadUrl}" target="_blank" rel="noopener">Download</a>`;
+      const bytes = isDir ? "-" : (entry.bytes || 0).toLocaleString();
+      const icon = isDir ? "📁" : "📄";
+      return `<tr>
+        <td class="url-cell">${icon} ${entry.name}</td>
+        <td>${entry.type}</td>
+        <td>${bytes}</td>
+        <td>${entry.modifiedAt ? entry.modifiedAt.replace("T", " ").replace(".000Z", " UTC") : "-"}</td>
+        <td>${actionCell}</td>
+      </tr>`;
+    })
+    .join("");
+  $("#rawFilesTableBody").html(rows);
+}
+
+async function fetchRawFiles(dir) {
+  if (typeof dir === "string") uiState.rawFilesDir = dir;
+  const currentDir = uiState.rawFilesDir;
+
+  const breadcrumb = currentDir
+    ? `downloads / ${currentDir.split("/").join(" / ")}`
+    : "downloads/";
+  $("#rawFilesBreadcrumb").text(breadcrumb);
+  $("#rawFilesUpBtn").prop("disabled", !currentDir);
+
+  try {
+    const response = await getJsonNoCache("./api/komet-download/raw-files", { dir: currentDir });
+    const data = response?.data || {};
+    const entries = data.entries || [];
+    renderRawFileRows(entries);
+    $("#rawFilesCountText").text(
+      data.exists === false
+        ? `downloads/ folder does not exist yet on the server.`
+        : `${data.totalEntries || 0} item(s) in downloads/${currentDir ? currentDir + "/" : ""}`
+    );
+  } catch (error) {
+    const detail = extractError(error);
+    logKometError("raw-files.fetch.error", error, { dir: currentDir, detail });
+    $("#rawFilesTableBody").html(`<tr><td colspan="5">Error: ${detail}</td></tr>`);
+    $("#rawFilesCountText").text("");
   }
 }
 
 function setActiveTab(tabName) {
   uiState.activeTab = tabName;
-  const isProcessing = tabName === "processing";
-  $("#processingTabPanel").toggleClass("is-hidden", !isProcessing);
-  $("#downloadedTabPanel").toggleClass("is-hidden", isProcessing);
-  $("#processingTabBtn")
-    .toggleClass("active", isProcessing)
-    .toggleClass("secondary", !isProcessing);
-  $("#downloadedTabBtn")
-    .toggleClass("active", !isProcessing)
-    .toggleClass("secondary", isProcessing);
+  const tabs = ["processing", "downloaded", "rawFiles"];
+  tabs.forEach((tab) => {
+    const isActive = tab === tabName;
+    const panelId = tab === "rawFiles" ? "rawFilesTabPanel" : `${tab}TabPanel`;
+    const btnId = tab === "rawFiles" ? "rawFilesTabBtn" : `${tab}TabBtn`;
+    $(`#${panelId}`).toggleClass("is-hidden", !isActive);
+    $(`#${btnId}`).toggleClass("active", isActive).toggleClass("secondary", !isActive);
+  });
 }
 
 function clearLogsAndOutput() {
@@ -659,6 +806,31 @@ $(document).ready(() => {
     const fileName = decodeURIComponent(encodedName);
     await syncSingleFile(fileName);
   });
+
+  $("#rawFilesTabBtn").on("click", async () => {
+    setActiveTab("rawFiles");
+    await fetchRawFiles(uiState.rawFilesDir);
+  });
+  $("#rawFilesRefreshBtn").on("click", () => fetchRawFiles(uiState.rawFilesDir));
+  $("#rawFilesUpBtn").on("click", async () => {
+    const parts = uiState.rawFilesDir.split("/").filter(Boolean);
+    parts.pop();
+    await fetchRawFiles(parts.join("/"));
+  });
+  $("#rawFilesTableBody").on("click", ".raw-nav-btn", async (event) => {
+    const encodedDir = String($(event.currentTarget).data("dir") || "");
+    const dir = decodeURIComponent(encodedDir);
+    await fetchRawFiles(dir);
+  });
+
+  $("#sseClearBtn").on("click", () => {
+    sseEntries = [];
+    renderSseLog();
+  });
+  $("#sseReconnectBtn").on("click", () => connectSse());
+  $("#sseShowInfoChk, #sseShowErrorChk").on("change", renderSseLog);
+
+  connectSse();
 
   logKometInfo("page.ready");
   restorePersistedState().catch((error) => {

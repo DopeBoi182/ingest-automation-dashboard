@@ -84,6 +84,7 @@
         <div class="tab-buttons">
           <button type="button" id="processingTabBtn" class="tab-btn active">Processing</button>
           <button type="button" id="downloadedTabBtn" class="tab-btn secondary">Downloaded</button>
+          <button type="button" id="rawFilesTabBtn" class="tab-btn secondary">Raw Files</button>
         </div>
 
         <div id="processingTabPanel" class="tab-panel">
@@ -153,13 +154,60 @@
           </div>
           <div class="actions">
             <button type="button" id="downloadedRefreshBtn" class="secondary">Refresh</button>
-            <button type="button" id="syncBulkBtn">Bulk Sync All In Folder</button>
+            <button type="button" id="syncBulkBtn" disabled>Bulk Sync All In Folder</button>
             <button type="button" id="downloadedPrevBtn" class="secondary">Prev</button>
             <button type="button" id="downloadedNextBtn" class="secondary">Next</button>
           </div>
           <p id="downloadedPageText" class="status">Page 1/1</p>
           <p id="syncSummaryText" class="status">No sync run.</p>
         </div>
+        <div id="rawFilesTabPanel" class="tab-panel is-hidden">
+          <div class="actions">
+            <span id="rawFilesBreadcrumb" class="status" style="flex:1;">downloads/</span>
+            <button type="button" id="rawFilesUpBtn" class="secondary" disabled>Up</button>
+            <button type="button" id="rawFilesRefreshBtn" class="secondary">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Bytes</th>
+                  <th>Modified</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="rawFilesTableBody">
+                <tr>
+                  <td colspan="5">No data yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="rawFilesCountText" class="status"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Server Logs <span id="sseStatusBadge" style="font-size:0.75rem;font-weight:normal;margin-left:0.5rem;padding:2px 8px;border-radius:999px;background:#555;color:#fff;">connecting…</span></h2>
+        <div class="actions" style="margin-bottom:0.5rem;">
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:normal;">
+            <input type="checkbox" id="sseAutoScrollChk" checked /> Auto-scroll
+          </label>
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:normal;">
+            <input type="checkbox" id="sseShowInfoChk" checked /> Info
+          </label>
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:normal;">
+            <input type="checkbox" id="sseShowErrorChk" checked /> Errors
+          </label>
+          <button type="button" id="sseClearBtn" class="secondary">Clear</button>
+          <button type="button" id="sseReconnectBtn" class="secondary">Reconnect</button>
+        </div>
+        <div id="sseLogContainer" style="background:#1a1a1a;color:#d4d4d4;font-family:monospace;font-size:0.8rem;line-height:1.5;padding:0.75rem;border-radius:4px;height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">
+          <span style="color:#888;">Waiting for server logs…</span>
+        </div>
+        <p id="sseLogCountText" class="status">0 entries</p>
       </section>
 
       <section class="card">

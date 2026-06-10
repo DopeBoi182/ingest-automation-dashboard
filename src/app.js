@@ -15,7 +15,7 @@ const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 
 app.set("etag", false);
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(publicDir));
 if (env.appBasePath) {

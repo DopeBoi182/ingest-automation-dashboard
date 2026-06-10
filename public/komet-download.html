@@ -64,9 +64,15 @@
             ></textarea>
           </label>
 
+          <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;">
+            <input type="checkbox" id="autoSyncBatchChk" checked />
+            Auto sync each file after successful download
+          </label>
+          <p id="autoSyncHintText" class="status">Batch mode: download + auto sync.</p>
+
           <div class="actions">
             <button type="submit" id="downloadTestBtn">Download Test</button>
-            <button type="button" id="startBatchBtn">Start Batch</button>
+            <button type="button" id="startBatchBtn">Start Batch (Download + Auto Sync)</button>
             <button type="button" id="checkStorageHealthBtn" class="secondary">
               Check Storage Health
             </button>
@@ -94,13 +100,15 @@
                 <tr>
                   <th>No</th>
                   <th>Relative Path</th>
-                  <th>Status</th>
-                  <th>Result</th>
+                  <th>Download</th>
+                  <th>Download Result</th>
+                  <th>Sync</th>
+                  <th>Sync Result</th>
                 </tr>
               </thead>
               <tbody id="processingTableBody">
                 <tr>
-                  <td colspan="4">No run yet.</td>
+                  <td colspan="6">No run yet.</td>
                 </tr>
               </tbody>
             </table>

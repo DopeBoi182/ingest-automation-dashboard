@@ -10,6 +10,7 @@ const { uploadFileToKometSync } = require("../services/kometSyncClient");
 const {
   upsertBatchRun,
   getBatchRun,
+  getBatchRunsByState,
   getLatestBatchRunByDownloadDir,
   upsertSyncRun,
   getSyncRun,
@@ -23,9 +24,13 @@ const router = express.Router();
 
 const DOWNLOAD_ROOT = path.resolve(process.cwd(), "downloads");
 const REPORT_ROOT = path.resolve(DOWNLOAD_ROOT, "reports");
-const MAX_BATCH_ITEMS = 5000;
+const MAX_BATCH_ITEMS = Math.max(1000, env.kometDownloadMaxBatchItems || 10000);
 const MAX_PAGE_SIZE = 200;
 const LOG_BUFFER_MAX = 500;
+const ITEM_TIMEOUT_MS = Math.max(30000, env.kometDownloadItemTimeoutMs || 120000);
+const MAX_DOWNLOAD_RETRIES = Math.max(0, env.kometDownloadMaxRetries || 2);
+
+const activeBatchWorkers = new Set();
 
 const sseClients = new Set();
 const logBuffer = [];
@@ -195,15 +200,90 @@ function paginate(items, page, limit) {
   };
 }
 
+function getDownloadStatus(item) {
+  return item.downloadStatus || item.status || "queued";
+}
+
+function getSyncStatus(item) {
+  return item.syncStatus || "idle";
+}
+
+function isDownloadTerminal(status) {
+  return ["downloaded", "failed", "skipped"].includes(status);
+}
+
+function isSyncTerminal(status) {
+  return ["synced", "failed", "skipped"].includes(status);
+}
+
+function recomputeBatchRunSummary(run) {
+  let downloadProcessed = 0;
+  let downloadSuccess = 0;
+  let downloadFailed = 0;
+  let downloadSkipped = 0;
+  let syncProcessed = 0;
+  let syncSuccess = 0;
+  let syncFailed = 0;
+  let syncSkipped = 0;
+  let syncTotal = 0;
+
+  for (const item of run.items) {
+    const downloadStatus = getDownloadStatus(item);
+    const syncStatus = getSyncStatus(item);
+    if (isDownloadTerminal(downloadStatus)) downloadProcessed += 1;
+    if (downloadStatus === "downloaded") downloadSuccess += 1;
+    if (downloadStatus === "failed") downloadFailed += 1;
+    if (downloadStatus === "skipped") downloadSkipped += 1;
+
+    if (downloadStatus === "downloaded") {
+      syncTotal += 1;
+      if (isSyncTerminal(syncStatus)) syncProcessed += 1;
+      if (syncStatus === "synced") syncSuccess += 1;
+      if (syncStatus === "failed") syncFailed += 1;
+      if (syncStatus === "skipped") syncSkipped += 1;
+    }
+  }
+
+  run.downloadProcessed = downloadProcessed;
+  run.downloadSuccess = downloadSuccess;
+  run.downloadFailed = downloadFailed;
+  run.downloadSkipped = downloadSkipped;
+  run.syncTotal = syncTotal;
+  run.syncProcessed = syncProcessed;
+  run.syncSuccess = syncSuccess;
+  run.syncFailed = syncFailed;
+  run.syncSkipped = syncSkipped;
+  // Keep backward-compatible counters.
+  run.processed = downloadProcessed;
+  run.success = downloadSuccess;
+  run.failed = downloadFailed;
+  run.skipped = downloadSkipped;
+}
+
 function toRunSummary(run) {
   return {
     runId: run.runId,
     state: run.state,
     total: run.total,
-    processed: run.processed,
-    success: run.success,
-    failed: run.failed,
-    skipped: run.skipped,
+    processed: run.downloadProcessed ?? run.processed,
+    success: run.downloadSuccess ?? run.success,
+    failed: run.downloadFailed ?? run.failed,
+    skipped: run.downloadSkipped ?? run.skipped,
+    download: {
+      total: run.total,
+      processed: run.downloadProcessed ?? run.processed,
+      success: run.downloadSuccess ?? run.success,
+      failed: run.downloadFailed ?? run.failed,
+      skipped: run.downloadSkipped ?? run.skipped ?? 0,
+    },
+    sync: {
+      enabled: Boolean(run.autoSync),
+      total: run.syncTotal ?? 0,
+      processed: run.syncProcessed ?? 0,
+      success: run.syncSuccess ?? 0,
+      failed: run.syncFailed ?? 0,
+      skipped: run.syncSkipped ?? 0,
+    },
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     elapsedMs: run.completedAt ? Date.parse(run.completedAt) - Date.parse(run.startedAt) : null,
@@ -211,12 +291,17 @@ function toRunSummary(run) {
 }
 
 function toRunItemResponse(runId, item) {
-  const canDownload = item.status === "downloaded" && item.savedPath;
+  const downloadStatus = getDownloadStatus(item);
+  const syncStatus = getSyncStatus(item);
+  const canDownload = downloadStatus === "downloaded" && item.savedPath;
   return {
     itemId: item.itemId,
     index: item.index,
     relativePath: item.relativePath,
-    status: item.status,
+    status: downloadStatus,
+    downloadStatus,
+    syncStatus,
+    syncResult: item.syncResult || null,
     bytes: item.bytes || 0,
     error: item.error || null,
     skipReason: item.skipReason || null,
@@ -346,71 +431,157 @@ async function writeReportFile(prefix, run, rows) {
   return filePath;
 }
 
-async function processBatchRun(run) {
-  logKometInfo("batch.start", {
-    runId: run.runId,
-    total: run.total,
-    downloadDir: run.downloadDirRaw,
-  });
-
+function normalizeBatchRunShape(run) {
+  run.items = Array.isArray(run.items) ? run.items : [];
+  run.autoSync = Boolean(run.autoSync);
+  run.syncToken = normalizeWhitespace(run.syncToken || "");
+  run.syncFolderId = normalizeWhitespace(run.syncFolderId || env.kometSyncDefaultFolderId);
+  run.itemTimeoutMs = Math.max(30000, Number(run.itemTimeoutMs) || ITEM_TIMEOUT_MS);
+  run.maxRetries = Math.max(0, Number(run.maxRetries) || MAX_DOWNLOAD_RETRIES);
   for (const item of run.items) {
-    item.status = "processing";
-    item.startedAt = new Date().toISOString();
+    item.downloadStatus = getDownloadStatus(item);
+    item.status = item.downloadStatus;
+    item.syncStatus = getSyncStatus(item);
+    item.syncResult = item.syncResult || null;
+    item.retries = Number(item.retries) || 0;
+    item.error = item.error || null;
+    item.skipReason = item.skipReason || null;
+  }
+  recomputeBatchRunSummary(run);
+}
 
-    try {
-      const fileName = ensureFileName(item.relativePath);
-      const targetPath = path.join(run.targetDir, fileName);
-      const alreadyExists = await fsp
-        .access(targetPath)
-        .then(() => true)
-        .catch(() => false);
+function isBatchRunFinished(run) {
+  if (!Array.isArray(run.items) || !run.items.length) return true;
+  for (const item of run.items) {
+    const downloadStatus = getDownloadStatus(item);
+    const syncStatus = getSyncStatus(item);
+    if (!isDownloadTerminal(downloadStatus)) return false;
+    if (downloadStatus === "downloaded" && run.autoSync && !isSyncTerminal(syncStatus)) return false;
+  }
+  return true;
+}
 
-      if (alreadyExists) {
-        item.status = "skipped";
-        item.savedAs = fileName;
-        item.savedPath = targetPath;
-        item.skipReason = "already_exists";
-        run.skipped += 1;
-      } else {
-        const url = buildDownloadUrl(run.baseUrl, item.relativePath);
-        const result = await downloadBinaryToFile({
-          url,
-          cookieHeader: run.cookies,
-          targetPath,
-          timeoutMs: 30000,
-        });
-        item.status = "downloaded";
-        item.savedAs = fileName;
-        item.savedPath = targetPath;
-        item.bytes = result.bytes;
-        run.success += 1;
-      }
-    } catch (error) {
-      item.status = "failed";
-      item.error = error?.detail || error?.message || "Unexpected download error";
-      run.failed += 1;
-      logKometError("batch.item.failed", error, {
-        runId: run.runId,
-        index: item.index,
-        relativePath: item.relativePath,
+async function processBatchItem(run, item) {
+  const downloadStatus = getDownloadStatus(item);
+  if (isDownloadTerminal(downloadStatus)) return;
+
+  item.downloadStatus = "processing";
+  item.status = "processing";
+  item.startedAt = new Date().toISOString();
+  item.error = null;
+  item.skipReason = null;
+
+  try {
+    const fileName = ensureFileName(item.relativePath);
+    const targetPath = path.join(run.targetDir, fileName);
+    const alreadyExists = await fsp
+      .access(targetPath)
+      .then(() => true)
+      .catch(() => false);
+
+    if (alreadyExists) {
+      item.downloadStatus = "skipped";
+      item.status = "skipped";
+      item.savedAs = fileName;
+      item.savedPath = targetPath;
+      item.skipReason = "already_exists";
+      item.syncStatus = "skipped";
+      item.syncResult = "Skipped because file already exists locally";
+      await setSyncFileState(run.downloadDirRaw, fileName, {
+        status: "skipped",
+        result: item.syncResult,
       });
-    } finally {
-      item.completedAt = new Date().toISOString();
-      run.processed += 1;
-      run.updatedAt = item.completedAt;
-      // Persist every item transition so UI state survives refresh.
-      // eslint-disable-next-line no-await-in-loop
-      await upsertBatchRun(run);
+    } else {
+      const url = buildDownloadUrl(run.baseUrl, item.relativePath);
+      const result = await downloadBinaryToFile({
+        url,
+        cookieHeader: run.cookies,
+        targetPath,
+        timeoutMs: run.itemTimeoutMs,
+      });
+      item.downloadStatus = "downloaded";
+      item.status = "downloaded";
+      item.savedAs = fileName;
+      item.savedPath = targetPath;
+      item.bytes = result.bytes;
+      item.syncStatus = run.autoSync ? "queued" : "idle";
+      item.syncResult = run.autoSync ? "Queued for auto sync" : "Auto sync disabled";
     }
+  } catch (error) {
+    item.downloadStatus = "failed";
+    item.status = "failed";
+    item.error = error?.detail || error?.message || "Unexpected download error";
+    logKometError("batch.item.failed", error, {
+      runId: run.runId,
+      index: item.index,
+      relativePath: item.relativePath,
+    });
+  } finally {
+    item.completedAt = new Date().toISOString();
+  }
+}
+
+async function syncBatchItem(run, item) {
+  if (!run.autoSync) return;
+  if (getDownloadStatus(item) !== "downloaded") return;
+  if (isSyncTerminal(getSyncStatus(item))) return;
+  if (!item.savedPath || !item.savedAs) return;
+
+  if (!run.syncToken) {
+    item.syncStatus = "failed";
+    item.syncResult = "Missing sync token";
+    return;
   }
 
+  const existing = await getSyncFileState(run.downloadDirRaw, item.savedAs);
+  if (existing && ["synced", "skipped"].includes(existing.status)) {
+    item.syncStatus = "skipped";
+    item.syncResult = `Bypass duplicate (${existing.status})`;
+    return;
+  }
+
+  item.syncStatus = "processing";
+  item.syncResult = "Sync in progress";
+  await setSyncFileState(run.downloadDirRaw, item.savedAs, {
+    status: "processing",
+    result: `Auto sync ${item.index}/${run.total}`,
+  });
+
+  try {
+    const uploadResponse = await uploadFileToKometSync({
+      token: run.syncToken,
+      folderId: run.syncFolderId,
+      fileName: item.savedAs,
+      filePath: item.savedPath,
+      pathValue: run.downloadDirRaw,
+    });
+    item.syncStatus = "synced";
+    item.syncResult = `HTTP ${uploadResponse.status}`;
+    await setSyncFileState(run.downloadDirRaw, item.savedAs, {
+      status: "synced",
+      result: item.syncResult,
+    });
+  } catch (error) {
+    item.syncStatus = "failed";
+    item.syncResult = error?.message || "Sync failed";
+    await setSyncFileState(run.downloadDirRaw, item.savedAs, {
+      status: "failed",
+      result: item.syncResult,
+    });
+    logKometError("batch.item.sync.failed", error, {
+      runId: run.runId,
+      index: item.index,
+      name: item.savedAs,
+    });
+  }
+}
+
+async function finalizeBatchRun(run) {
   run.completedAt = new Date().toISOString();
-  run.state = "completed";
-
-  const successRows = run.items.filter((item) => item.status === "downloaded");
-  const failedRows = run.items.filter((item) => item.status === "failed");
-  const skippedRows = run.items.filter((item) => item.status === "skipped");
-
+  run.state = run.downloadFailed > 0 || run.syncFailed > 0 ? "completed_with_errors" : "completed";
+  const successRows = run.items.filter((item) => getDownloadStatus(item) === "downloaded");
+  const failedRows = run.items.filter((item) => getDownloadStatus(item) === "failed");
+  const skippedRows = run.items.filter((item) => getDownloadStatus(item) === "skipped");
   try {
     const successReportPath = await writeReportFile("laporan_download_berhasil", run, successRows);
     const failedReportPath = await writeReportFile("laporan_download_gagal", run, failedRows);
@@ -425,18 +596,121 @@ async function processBatchRun(run) {
       runId: run.runId,
     });
   }
-
+  recomputeBatchRunSummary(run);
+  run.updatedAt = new Date().toISOString();
   await upsertBatchRun(run);
-
   logKometInfo("batch.complete", {
     runId: run.runId,
     total: run.total,
-    processed: run.processed,
-    success: run.success,
-    failed: run.failed,
-    skipped: run.skipped,
+    download: {
+      processed: run.downloadProcessed,
+      success: run.downloadSuccess,
+      failed: run.downloadFailed,
+      skipped: run.downloadSkipped,
+    },
+    sync: {
+      processed: run.syncProcessed,
+      success: run.syncSuccess,
+      failed: run.syncFailed,
+      skipped: run.syncSkipped,
+    },
     reportPaths: run.reportPaths,
   });
+}
+
+async function processBatchRun(run) {
+  normalizeBatchRunShape(run);
+  run.state = "running";
+  logKometInfo("batch.start", {
+    runId: run.runId,
+    total: run.total,
+    downloadDir: run.downloadDirRaw,
+    autoSync: run.autoSync,
+  });
+
+  while (!isBatchRunFinished(run)) {
+    let progressed = false;
+    for (const item of run.items) {
+      if (isBatchRunFinished(run)) break;
+      const downloadStatus = getDownloadStatus(item);
+      if (!isDownloadTerminal(downloadStatus)) {
+        const startedAtMs = Date.parse(item.startedAt || "") || 0;
+        if (
+          downloadStatus === "processing" &&
+          startedAtMs > 0 &&
+          Date.now() - startedAtMs > run.itemTimeoutMs
+        ) {
+          item.retries += 1;
+          if (item.retries > run.maxRetries) {
+            item.downloadStatus = "failed";
+            item.status = "failed";
+            item.error = `Exceeded retry limit (${run.maxRetries})`;
+            item.completedAt = new Date().toISOString();
+          } else {
+            item.downloadStatus = "queued";
+            item.status = "queued";
+          }
+        }
+        if (getDownloadStatus(item) === "queued") {
+          // eslint-disable-next-line no-await-in-loop
+          await processBatchItem(run, item);
+          progressed = true;
+        }
+      }
+
+      if (getDownloadStatus(item) === "downloaded" && run.autoSync && !isSyncTerminal(getSyncStatus(item))) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncBatchItem(run, item);
+        progressed = true;
+      }
+
+      recomputeBatchRunSummary(run);
+      run.updatedAt = new Date().toISOString();
+      // eslint-disable-next-line no-await-in-loop
+      await upsertBatchRun(run);
+    }
+
+    if (!progressed) {
+      // No progress means remaining processing items are waiting for timeout/retry.
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  await finalizeBatchRun(run);
+}
+
+function startBatchWorker(run, source = "trigger") {
+  if (!run?.runId) return;
+  if (activeBatchWorkers.has(run.runId)) return;
+  activeBatchWorkers.add(run.runId);
+  setImmediate(async () => {
+    try {
+      await processBatchRun(run);
+    } catch (error) {
+      run.state = "failed";
+      run.completedAt = new Date().toISOString();
+      run.updatedAt = run.completedAt;
+      recomputeBatchRunSummary(run);
+      await upsertBatchRun(run);
+      logKometError("batch.fatal", error, { runId: run.runId, source });
+    } finally {
+      activeBatchWorkers.delete(run.runId);
+    }
+  });
+}
+
+async function resumeRunningBatchWorkers() {
+  const runs = await getBatchRunsByState("running");
+  for (const run of runs) {
+    normalizeBatchRunShape(run);
+    startBatchWorker(run, "recovery");
+    logKometInfo("batch.recovered", {
+      runId: run.runId,
+      downloadDir: run.downloadDirRaw,
+      total: run.total,
+    });
+  }
 }
 
 async function processSyncRun(run) {
@@ -510,8 +784,24 @@ async function processSyncRun(run) {
 function downloadBinaryToFile({ url, cookieHeader, targetPath, timeoutMs = 30000 }) {
   const urlObject = new URL(url);
   const requestModule = urlObject.protocol === "https:" ? https : http;
+  const tempPath = `${targetPath}.part`;
 
   return new Promise((resolve, reject) => {
+    let finished = false;
+    const cleanupTemp = async () => {
+      try {
+        await fsp.unlink(tempPath);
+      } catch {
+        // ignore cleanup error
+      }
+    };
+    const finishWithError = async (error) => {
+      if (finished) return;
+      finished = true;
+      await cleanupTemp();
+      reject(error);
+    };
+
     const req = requestModule.request(
       {
         protocol: urlObject.protocol,
@@ -533,9 +823,9 @@ function downloadBinaryToFile({ url, cookieHeader, targetPath, timeoutMs = 30000
         if (statusCode >= 400) {
           const chunks = [];
           res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-          res.on("end", () => {
+          res.on("end", async () => {
             const upstreamBody = Buffer.concat(chunks).toString("utf8").slice(0, 1000);
-            reject(
+            await finishWithError(
               Object.assign(new Error(`Upstream HTTP ${statusCode}`), {
                 status: statusCode,
                 detail: upstreamBody || "Upstream request failed.",
@@ -546,30 +836,31 @@ function downloadBinaryToFile({ url, cookieHeader, targetPath, timeoutMs = 30000
           return;
         }
 
-        const fileStream = fs.createWriteStream(targetPath);
+        const fileStream = fs.createWriteStream(tempPath);
         res.pipe(fileStream);
         fileStream.on("finish", () => {
           fileStream.close(async () => {
             try {
-              const stat = await fsp.stat(targetPath);
+              const stat = await fsp.stat(tempPath);
+              if (!Number.isFinite(stat.size) || stat.size <= 0) {
+                throw new Error("Downloaded file is empty.");
+              }
+              await fsp.rename(tempPath, targetPath);
+              if (finished) return;
+              finished = true;
               resolve({
                 statusCode,
                 contentType,
                 bytes: stat.size,
               });
             } catch (error) {
-              reject(error);
+              await finishWithError(error);
             }
           });
         });
 
         fileStream.on("error", async (error) => {
-          try {
-            await fsp.unlink(targetPath);
-          } catch {
-            // ignore cleanup error
-          }
-          reject(error);
+          await finishWithError(error);
         });
       }
     );
@@ -577,7 +868,9 @@ function downloadBinaryToFile({ url, cookieHeader, targetPath, timeoutMs = 30000
     req.setTimeout(timeoutMs, () => {
       req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
     });
-    req.on("error", reject);
+    req.on("error", async (error) => {
+      await finishWithError(error);
+    });
     req.end();
   });
 }
@@ -691,11 +984,16 @@ router.post("/batch/start", async (req, res) => {
     const cookies = sanitizeCookieHeader(req.body?.cookies || "");
     const downloadDir = String(req.body?.downloadDir || "").trim();
     const paths = parsePathsInput(req.body?.paths);
+    const autoSync = Boolean(req.body?.autoSync);
+    const syncToken = normalizeWhitespace(req.body?.syncToken || "");
+    const syncFolderId = normalizeWhitespace(req.body?.syncFolderId || env.kometSyncDefaultFolderId);
 
     if (!baseUrl) return res.status(400).json({ message: "baseUrl is required." });
     if (!cookies) return res.status(400).json({ message: "cookies is required." });
     if (!downloadDir) return res.status(400).json({ message: "downloadDir is required." });
     if (!paths.length) return res.status(400).json({ message: "paths is required." });
+    if (autoSync && !syncToken) return res.status(400).json({ message: "syncToken is required." });
+    if (autoSync && !syncFolderId) return res.status(400).json({ message: "syncFolderId is required." });
     if (paths.length > MAX_BATCH_ITEMS) {
       return res.status(400).json({
         message: `paths exceeds max allowed items (${MAX_BATCH_ITEMS}).`,
@@ -715,10 +1013,24 @@ router.post("/batch/start", async (req, res) => {
       downloadDirRaw: downloadDir,
       targetDir,
       total: paths.length,
+      autoSync,
+      syncToken,
+      syncFolderId,
+      itemTimeoutMs: ITEM_TIMEOUT_MS,
+      maxRetries: MAX_DOWNLOAD_RETRIES,
       processed: 0,
       success: 0,
       failed: 0,
       skipped: 0,
+      downloadProcessed: 0,
+      downloadSuccess: 0,
+      downloadFailed: 0,
+      downloadSkipped: 0,
+      syncTotal: 0,
+      syncProcessed: 0,
+      syncSuccess: 0,
+      syncFailed: 0,
+      syncSkipped: 0,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       completedAt: null,
@@ -727,9 +1039,13 @@ router.post("/batch/start", async (req, res) => {
         itemId: crypto.randomUUID(),
         index: index + 1,
         relativePath: item,
+        downloadStatus: "queued",
         status: "queued",
+        syncStatus: "idle",
+        syncResult: null,
         error: null,
         skipReason: null,
+        retries: 0,
         savedAs: null,
         savedPath: null,
         bytes: 0,
@@ -738,24 +1054,16 @@ router.post("/batch/start", async (req, res) => {
       })),
     };
 
+    normalizeBatchRunShape(run);
     await upsertBatchRun(run);
-    setImmediate(async () => {
-      try {
-        await processBatchRun(run);
-      } catch (error) {
-        run.state = "failed";
-        run.completedAt = new Date().toISOString();
-        run.updatedAt = run.completedAt;
-        await upsertBatchRun(run);
-        logKometError("batch.fatal", error, { runId: run.runId });
-      }
-    });
+    startBatchWorker(run, "trigger");
 
     return res.json({
       data: {
         runId,
         total: run.total,
         state: run.state,
+        autoSync: run.autoSync,
       },
       debug: { traceId },
     });
@@ -773,6 +1081,10 @@ router.get("/batch/:runId/status", async (req, res) => {
   const run = await getBatchRun(runId);
   if (!run) {
     return res.status(404).json({ message: "runId not found." });
+  }
+  normalizeBatchRunShape(run);
+  if (run.state === "running") {
+    startBatchWorker(run, "status-poll");
   }
 
   const page = parsePage(req.query?.page, 1);
@@ -801,7 +1113,7 @@ router.get("/batch/:runId/files/:itemId", async (req, res) => {
   }
 
   const item = run.items.find((row) => row.itemId === itemId);
-  if (!item || !item.savedPath || item.status !== "downloaded") {
+  if (!item || !item.savedPath || getDownloadStatus(item) !== "downloaded") {
     return res.status(404).json({ message: "File is not available for download." });
   }
 
@@ -1208,6 +1520,12 @@ router.get("/sync/batch/:runId/status", async (req, res) => {
       totalItems: paged.totalItems,
       totalPages: paged.totalPages,
     },
+  });
+});
+
+setImmediate(() => {
+  resumeRunningBatchWorkers().catch((error) => {
+    logKometError("batch.recovery.fatal", error);
   });
 });
 

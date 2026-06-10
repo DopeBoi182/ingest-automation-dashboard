@@ -116,6 +116,9 @@ const env = {
     process.env.KOMET_SYNC_UPLOAD_ENDPOINT ||
     "https://apps.pertamina.com/plh/repo/api/v1/file-metadata/upload",
   kometSyncDefaultFolderId: process.env.KOMET_SYNC_DEFAULT_FOLDER_ID || "",
+  kometDownloadMaxBatchItems: toNumber(process.env.KOMET_DOWNLOAD_MAX_BATCH_ITEMS, 10000),
+  kometDownloadItemTimeoutMs: toNumber(process.env.KOMET_DOWNLOAD_ITEM_TIMEOUT_MS, 120000),
+  kometDownloadMaxRetries: toNumber(process.env.KOMET_DOWNLOAD_MAX_RETRIES, 2),
 };
 
 env.s3ServiceUrl = normalizeHostToServiceUrl(env.s3Host, env.s3UseHttps);

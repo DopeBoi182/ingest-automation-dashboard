@@ -57,6 +57,15 @@ async function getLatestBatchRunByDownloadDir(downloadDir) {
   return rows[0] || null;
 }
 
+async function getBatchRunsByState(state) {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (!normalized) return [];
+  const data = await readData();
+  return data.kometDownload.batchRuns.filter(
+    (item) => String(item?.state || "").trim().toLowerCase() === normalized
+  );
+}
+
 async function upsertSyncRun(run) {
   return updateData(async (data) => {
     const payload = { ...run, updatedAt: run.updatedAt || nowIso() };
@@ -129,6 +138,7 @@ module.exports = {
   upsertBatchRun,
   getBatchRun,
   getLatestBatchRunByDownloadDir,
+  getBatchRunsByState,
   upsertSyncRun,
   getSyncRun,
   getLatestSyncRunByDownloadDir,

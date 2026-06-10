@@ -197,6 +197,7 @@ function readFormPayload() {
     downloadDir: normalizeWhitespace($("#downloadDirInput").val()),
     singlePath: cleanRelativePath($("#singlePathInput").val()),
     paths: parsePathsInput($("#multiPathsInput").val()),
+    autoSync: $("#autoSyncBatchChk").prop("checked") !== false,
     syncToken: normalizeWhitespace($("#syncTokenInput").val()),
     syncFolderId: normalizeWhitespace($("#syncFolderIdInput").val()),
   };
@@ -217,6 +218,7 @@ function loadFormPayloadFromStorage() {
     $("#baseUrlInput").val(parsed.baseUrl || "");
     $("#cookieInput").val(parsed.cookies || "");
     $("#downloadDirInput").val(parsed.downloadDir || "");
+    $("#autoSyncBatchChk").prop("checked", parsed.autoSync !== false);
     $("#syncTokenInput").val(parsed.syncToken || "");
     $("#syncFolderIdInput").val(parsed.syncFolderId || "");
     uiState.lastDownloadDir = normalizeWhitespace(parsed.downloadDir || "");
@@ -239,6 +241,21 @@ function validateSinglePayload(payload) {
 function validateBatchPayload(payload) {
   validateBasePayload(payload);
   if (!payload.paths.length) throw new Error("At least one path is required.");
+  if (payload.autoSync && !payload.syncToken) {
+    throw new Error("syncToken is required when Auto Sync is ON.");
+  }
+}
+
+function updateAutoSyncUi() {
+  const autoSync = $("#autoSyncBatchChk").prop("checked") !== false;
+  $("#startBatchBtn").text(
+    autoSync ? "Start Batch (Download + Auto Sync)" : "Start Batch (Download Only)"
+  );
+  $("#autoSyncHintText").text(
+    autoSync
+      ? "Batch mode: download + auto sync."
+      : "Batch mode: download only (sync can be run later manually)."
+  );
 }
 
 async function postJsonNoCache(url, payload) {
@@ -272,32 +289,45 @@ async function getJsonNoCache(url, query = {}) {
 
 function statusBadge(status) {
   if (status === "downloaded") return "downloaded";
+  if (status === "synced") return "synced";
   if (status === "failed") return "failed";
   if (status === "skipped") return "skipped";
   if (status === "processing") return "processing";
+  if (status === "idle") return "idle";
   return "queued";
 }
 
 function renderProcessingRows(items) {
   if (!items.length) {
-    $("#processingTableBody").html('<tr><td colspan="4">No data.</td></tr>');
+    $("#processingTableBody").html('<tr><td colspan="6">No data.</td></tr>');
     return;
   }
   const rows = items
     .map((item) => {
-      let resultCell = "-";
-      if (item.status === "downloaded" && item.downloadUrl) {
-        resultCell = `<a href="${item.downloadUrl}" target="_blank" rel="noopener">Download</a>`;
-      } else if (item.status === "failed") {
-        resultCell = item.error || "Failed";
-      } else if (item.status === "skipped") {
-        resultCell = item.skipReason || "already_exists";
+      const downloadStatus = item.downloadStatus || item.status || "queued";
+      const syncStatus = item.syncStatus || "idle";
+
+      let downloadResultCell = "-";
+      if (downloadStatus === "downloaded" && item.downloadUrl) {
+        downloadResultCell = `<a href="${item.downloadUrl}" target="_blank" rel="noopener">Download</a>`;
+      } else if (downloadStatus === "failed") {
+        downloadResultCell = item.error || "Failed";
+      } else if (downloadStatus === "skipped") {
+        downloadResultCell = item.skipReason || "already_exists";
       }
+
+      let syncResultCell = item.syncResult || "-";
+      if (syncStatus === "failed" && item.syncResult) {
+        syncResultCell = item.syncResult;
+      }
+
       return `<tr>
         <td>${item.index}</td>
         <td class="url-cell">${item.relativePath || ""}</td>
-        <td>${statusBadge(item.status)}</td>
-        <td class="url-cell">${resultCell}</td>
+        <td>${statusBadge(downloadStatus)}</td>
+        <td class="url-cell">${downloadResultCell}</td>
+        <td>${statusBadge(syncStatus)}</td>
+        <td class="url-cell">${syncResultCell}</td>
       </tr>`;
     })
     .join("");
@@ -332,15 +362,18 @@ function renderSummary(summary, reportPaths) {
     $("#batchSummaryText").text("No active run.");
     return;
   }
+  const download = summary.download || {};
+  const sync = summary.sync || {};
+  const downloadSkip = download.skipped ?? summary.skipped ?? 0;
   const text = [
     `state: ${summary.state}`,
-    `progress: ${summary.processed}/${summary.total}`,
-    `success: ${summary.success}`,
-    `failed: ${summary.failed}`,
-    `skipped: ${summary.skipped || 0}`,
+    `download: ${download.processed ?? summary.processed}/${download.total ?? summary.total} (ok=${download.success ?? summary.success}, fail=${download.failed ?? summary.failed}, skip=${downloadSkip})`,
+    sync.enabled
+      ? `sync: ${sync.processed || 0}/${sync.total || 0} (ok=${sync.success || 0}, fail=${sync.failed || 0}, skip=${sync.skipped || 0})`
+      : "sync: disabled",
   ].join(" | ");
   const withReports =
-    summary.state === "completed" && reportPaths
+    (summary.state === "completed" || summary.state === "completed_with_errors") && reportPaths
       ? `${text} | reports: success, failed, skipped generated`
       : text;
   $("#batchSummaryText").text(withReports);
@@ -394,7 +427,11 @@ async function fetchBatchStatus(isManual = false) {
     $("#processingPageText").text(`Page ${data.page || 1}/${data.totalPages || 1}`);
     setRawOutput(response);
 
-    if (summary?.state === "completed" || summary?.state === "failed") {
+    if (
+      summary?.state === "completed" ||
+      summary?.state === "completed_with_errors" ||
+      summary?.state === "failed"
+    ) {
       stopPolling();
       showStatus(`Batch finished: ${summary.state}`);
       await fetchDownloadedList();
@@ -550,7 +587,9 @@ async function startBatchDownload() {
   const payload = readFormPayload();
   const button = $("#startBatchBtn");
   button.prop("disabled", true);
-  showStatus("Starting batch download...");
+  showStatus(
+    payload.autoSync ? "Starting batch download + auto sync..." : "Starting batch download only..."
+  );
 
   try {
     validateBatchPayload(payload);
@@ -559,6 +598,9 @@ async function startBatchDownload() {
       cookies: payload.cookies,
       downloadDir: payload.downloadDir,
       paths: payload.paths,
+      autoSync: payload.autoSync,
+      syncToken: payload.autoSync ? payload.syncToken : null,
+      syncFolderId: payload.autoSync ? payload.syncFolderId || null : null,
     });
     const data = response?.data || {};
     uiState.runId = data.runId || null;
@@ -567,6 +609,7 @@ async function startBatchDownload() {
     logKometInfo("batch.started", {
       runId: uiState.runId,
       total: data.total || payload.paths.length,
+      autoSync: data.autoSync !== false,
     });
 
     if (!uiState.runId) {
@@ -576,7 +619,11 @@ async function startBatchDownload() {
     uiState.isPolling = true;
     await fetchBatchStatus(true);
     schedulePolling();
-    showStatus(`Batch started. runId=${uiState.runId}`);
+    showStatus(
+      `Batch started (${data.autoSync !== false ? "download+sync" : "download-only"}). runId=${
+        uiState.runId
+      }`
+    );
   } catch (error) {
     const detail = extractError(error);
     logKometError("batch.start.error", error, { detail });
@@ -767,6 +814,7 @@ async function checkStorageHealth() {
 
 $(document).ready(() => {
   loadFormPayloadFromStorage();
+  updateAutoSyncUi();
 
   $("#kometDownloadForm").on("submit", runDownloadTest);
   $("#startBatchBtn").on("click", startBatchDownload);
@@ -829,6 +877,10 @@ $(document).ready(() => {
   });
   $("#sseReconnectBtn").on("click", () => connectSse());
   $("#sseShowInfoChk, #sseShowErrorChk").on("change", renderSseLog);
+  $("#autoSyncBatchChk").on("change", () => {
+    updateAutoSyncUi();
+    readFormPayload();
+  });
 
   connectSse();
 

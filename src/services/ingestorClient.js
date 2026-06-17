@@ -157,6 +157,30 @@ async function getJobStatus(jobId) {
   }
 }
 
+async function getJobById(jobId) {
+  logIngestorInfo("getJobById.begin", {
+    externalBaseUrl: env.externalBaseUrl,
+    endpoint: `${env.statusEndpointPrefix}/${jobId}`,
+    jobId,
+  });
+  try {
+    const response = await request({
+      method: "GET",
+      endpoint: `${env.statusEndpointPrefix}/${jobId}`,
+      timeoutMs: env.requestTimeoutMs,
+    });
+    logIngestorInfo("getJobById.success", {
+      statusCode: response?.status,
+      jobId,
+      remoteStatus: response?.data?.status || "",
+    });
+    return response.data;
+  } catch (error) {
+    logIngestorError("getJobById", error, { jobId });
+    throw error;
+  }
+}
+
 async function cancelJob(jobId) {
   logIngestorInfo("cancelJob.begin", {
     externalBaseUrl: env.externalBaseUrl,
@@ -202,10 +226,34 @@ async function askQna(payload) {
   }
 }
 
+async function classifyTags(payload) {
+  logIngestorInfo("classifyTags.begin", {
+    externalBaseUrl: env.externalBaseUrl,
+    endpoint: env.classifyEndpoint,
+    hasAbstract: Boolean(String(payload?.abstract || "").trim()),
+    maxLabels: payload?.max_labels,
+  });
+  try {
+    const response = await request({
+      method: "POST",
+      endpoint: env.classifyEndpoint,
+      body: payload,
+      timeoutMs: env.requestTimeoutMs,
+    });
+    logIngestorInfo("classifyTags.success", { statusCode: response?.status });
+    return response.data;
+  } catch (error) {
+    logIngestorError("classifyTags", error);
+    throw error;
+  }
+}
+
 module.exports = {
   submitExtractJob,
   submitExtractJobWithFile,
+  getJobById,
   getJobStatus,
   cancelJob,
   askQna,
+  classifyTags,
 };

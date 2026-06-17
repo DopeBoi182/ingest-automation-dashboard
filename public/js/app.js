@@ -102,7 +102,12 @@ function collectUrlItemsWithOcr() {
 
 function processRowTemplate(job) {
   const actionCell = job.job_id
-    ? `<button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>`
+    ? `
+      <div class="row-actions">
+        <button class="secondary refresh-row-btn" data-job-id="${job.job_id}">Refresh</button>
+        <button class="danger cancel-row-btn" data-job-id="${job.job_id}">Cancel</button>
+      </div>
+    `
     : "-";
   return `
     <tr>
@@ -289,6 +294,21 @@ async function refreshOne(jobId) {
   await loadQueueViews();
   showStatus(`Refreshed ${jobId}.`);
   logFeInfo("refreshOne.success", { jobId });
+}
+
+async function cancelJobById(jobId, { refreshViews = true } = {}) {
+  logFeInfo("cancelJobById.begin", { jobId });
+  showStatus(`Cancelling ${jobId} ...`);
+  const response = await $.ajax({
+    url: `./api/jobs/${encodeURIComponent(jobId)}/cancel`,
+    method: "POST",
+  });
+  if (refreshViews) {
+    await loadQueueViews();
+  }
+  showStatus(`Cancelled ${jobId}.`);
+  logFeInfo("cancelJobById.success", { jobId });
+  return response.data || {};
 }
 
 async function refreshAllState() {
@@ -784,30 +804,95 @@ async function askQna(event) {
   logFeInfo("askQna.success");
 }
 
-async function checkJobId(event) {
+async function classifyTags(event) {
   event.preventDefault();
-  const jobId = $("#jobIdInput").val().trim();
-  if (!jobId) {
-    showStatus("Please input a job_id first.");
+  const abstract = $("#classifyAbstract").val().trim();
+  const maxLabels = Number($("#classifyMaxLabels").val());
+  if (!abstract) {
+    showStatus("Please provide abstract text first.");
     return;
   }
 
-  $("#jobCheckerBtn").prop("disabled", true);
-  $("#jobCheckerOutput").text("Checking job status...");
-  showStatus(`Checking job_id ${jobId} ...`);
-  logFeInfo("checkJobId.begin", { jobId });
+  $("#tagClassifyBtn").prop("disabled", true);
+  $("#tagClassifyOutput").text("Classifying tags...");
+  showStatus("Classifying tags...");
+  logFeInfo("classifyTags.begin", {
+    abstractLength: abstract.length,
+    maxLabels,
+  });
   try {
-    const response = await getJsonNoCache(`./api/jobs/check/${encodeURIComponent(jobId)}`);
+    const response = await $.ajax({
+      url: "./api/tags/classify",
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ abstract, max_labels: maxLabels }),
+    });
+    $("#tagClassifyOutput").text(JSON.stringify(response.data || {}, null, 2));
+    showStatus("Tag classification complete.");
+    logFeInfo("classifyTags.success");
+  } catch (error) {
+    const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
+    $("#tagClassifyOutput").text(JSON.stringify(payload, null, 2));
+    showStatus(`Tag classify failed: ${extractError(error)}`);
+    logFeError("classifyTags", error, { abstractLength: abstract.length, maxLabels });
+  } finally {
+    $("#tagClassifyBtn").prop("disabled", false);
+  }
+}
+
+function readJobIdInput() {
+  const jobId = $("#jobIdInput").val().trim();
+  if (!jobId) {
+    showStatus("Please input a job_id first.");
+    return "";
+  }
+  return jobId;
+}
+
+async function checkJobIdBasic() {
+  const jobId = readJobIdInput();
+  if (!jobId) return;
+
+  $("#jobCheckerBtn").prop("disabled", true);
+  $("#jobCheckerOutput").text("Getting job detail...");
+  showStatus(`Getting job_id ${jobId} ...`);
+  logFeInfo("checkJobIdBasic.begin", { jobId });
+  try {
+    const response = await getJsonNoCache(`./api/jobs/check/${encodeURIComponent(jobId)}/basic`);
     $("#jobCheckerOutput").text(JSON.stringify(response.data || {}, null, 2));
-    showStatus(`Job_id ${jobId} checked.`);
-    logFeInfo("checkJobId.success", { jobId });
+    showStatus(`Job_id ${jobId} loaded.`);
+    logFeInfo("checkJobIdBasic.success", { jobId });
   } catch (error) {
     const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
     $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
-    showStatus(`Job_id check failed: ${extractError(error)}`);
-    logFeError("checkJobId", error, { jobId });
+    showStatus(`Get job_id failed: ${extractError(error)}`);
+    logFeError("checkJobIdBasic", error, { jobId });
   } finally {
     $("#jobCheckerBtn").prop("disabled", false);
+  }
+}
+
+async function checkJobIdResult(event) {
+  event.preventDefault();
+  const jobId = readJobIdInput();
+  if (!jobId) return;
+
+  $("#jobCheckerResultBtn").prop("disabled", true);
+  $("#jobCheckerOutput").text("Getting job result...");
+  showStatus(`Getting job_id result ${jobId} ...`);
+  logFeInfo("checkJobIdResult.begin", { jobId });
+  try {
+    const response = await getJsonNoCache(`./api/jobs/check/${encodeURIComponent(jobId)}`);
+    $("#jobCheckerOutput").text(JSON.stringify(response.data || {}, null, 2));
+    showStatus(`Job_id result ${jobId} loaded.`);
+    logFeInfo("checkJobIdResult.success", { jobId });
+  } catch (error) {
+    const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
+    $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+    showStatus(`Get job_id result failed: ${extractError(error)}`);
+    logFeError("checkJobIdResult", error, { jobId });
+  } finally {
+    $("#jobCheckerResultBtn").prop("disabled", false);
   }
 }
 
@@ -902,6 +987,15 @@ $(document).ready(async () => {
     }
   });
 
+  $("#processBody").on("click", ".cancel-row-btn", async function onClick() {
+    const jobId = $(this).data("job-id");
+    try {
+      await cancelJobById(jobId);
+    } catch (error) {
+      showStatus(`Cancel failed: ${extractError(error)}`);
+    }
+  });
+
   $("#queueBody").on("click", ".force-replace-btn", async function onClick() {
     const queueId = $(this).data("id");
     try {
@@ -928,8 +1022,36 @@ $(document).ready(async () => {
     }
   });
 
+  $("#tagClassifyForm").on("submit", async (event) => {
+    await classifyTags(event);
+  });
+
+  $("#jobCheckerBtn").on("click", async () => {
+    await checkJobIdBasic();
+  });
+
   $("#jobCheckerForm").on("submit", async (event) => {
-    await checkJobId(event);
+    await checkJobIdResult(event);
+  });
+
+  $("#jobCancelBtn").on("click", async () => {
+    const jobId = $("#jobIdInput").val().trim();
+    if (!jobId) {
+      showStatus("Please input a job_id first.");
+      return;
+    }
+    $("#jobCancelBtn").prop("disabled", true);
+    $("#jobCheckerOutput").text("Cancelling job...");
+    try {
+      const payload = await cancelJobById(jobId);
+      $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+    } catch (error) {
+      const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
+      $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+      showStatus(`Cancel failed: ${extractError(error)}`);
+    } finally {
+      $("#jobCancelBtn").prop("disabled", false);
+    }
   });
 
   $("#healthcheckerBtn").on("click", async () => {

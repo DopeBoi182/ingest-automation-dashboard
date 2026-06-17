@@ -72,6 +72,31 @@
       </section>
 
       <section class="card">
+        <h2>Tag Classifier</h2>
+        <form id="tagClassifyForm">
+          <label>
+            Abstract
+            <textarea
+              id="classifyAbstract"
+              rows="3"
+              placeholder="Ringkaslah topik ini dan tentukan label bidang keilmuan terkait produksi minyak dan gas."
+              required
+            ></textarea>
+          </label>
+          <div class="grid-2">
+            <label>
+              Max Labels
+              <input type="number" id="classifyMaxLabels" min="1" max="20" value="8" required />
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit" id="tagClassifyBtn">Classify</button>
+          </div>
+        </form>
+        <pre id="tagClassifyOutput">No classification yet.</pre>
+      </section>
+
+      <section class="card">
         <h2>Queue URLs</h2>
         <form id="ingestForm">
           <label>
@@ -219,7 +244,9 @@
             <input type="text" id="jobIdInput" placeholder="job_NixVE7nAboVgTj5I" required />
           </label>
           <div class="actions">
-            <button type="submit" id="jobCheckerBtn">Check Job ID</button>
+            <button type="button" id="jobCheckerBtn">Get Job ID</button>
+            <button type="submit" id="jobCheckerResultBtn" class="secondary">Get Job ID Result</button>
+            <button type="button" id="jobCancelBtn" class="danger">Cancel Job</button>
           </div>
         </form>
         <pre id="jobCheckerOutput">No job checked yet.</pre>

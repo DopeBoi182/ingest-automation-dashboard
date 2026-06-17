@@ -6,6 +6,7 @@ const { getDataFilePath } = require("./storage/dataStore");
 const jobsRouter = require("./routes/jobs");
 const settingsRouter = require("./routes/settings");
 const qnaRouter = require("./routes/qna");
+const tagsRouter = require("./routes/tags");
 const s3Router = require("./routes/s3");
 const healthcheckerRouter = require("./routes/healthchecker");
 const sqlsyncRouter = require("./routes/sqlsync");
@@ -54,6 +55,7 @@ apiRouter.post("/callback", (req, res) => {
 apiRouter.use("/api/jobs", jobsRouter);
 apiRouter.use("/api/settings", settingsRouter);
 apiRouter.use("/api/qna", qnaRouter);
+apiRouter.use("/api/tags", tagsRouter);
 apiRouter.use("/api/s3", s3Router);
 apiRouter.use("/api/healthchecker", healthcheckerRouter);
 apiRouter.use("/api/sqlsync", sqlsyncRouter);

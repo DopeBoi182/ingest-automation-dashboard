@@ -64,6 +64,7 @@ const env = {
   extractEndpoint: process.env.EXTRACT_ENDPOINT || "/api/v1/jobs/extract",
   statusEndpointPrefix: process.env.STATUS_ENDPOINT_PREFIX || "/api/v1/jobs",
   qnaEndpoint: process.env.QNA_ENDPOINT || "/api/v1/chat/qna",
+  classifyEndpoint: process.env.CLASSIFY_ENDPOINT || "/api/v1/tags/classify",
   defaultProvider: process.env.DEFAULT_PROVIDER || "bedrock",
   defaultPrompt:
     process.env.DEFAULT_PROMPT ||

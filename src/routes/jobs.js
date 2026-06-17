@@ -6,6 +6,7 @@ const { getOrCreateGlobalSetting } = require("../utils/settings");
 const {
   submitExtractJob,
   submitExtractJobWithFile,
+  getJobById,
   getJobStatus,
   cancelJob,
 } = require("../services/ingestorClient");
@@ -529,6 +530,50 @@ router.get("/check/:jobId", async (req, res, next) => {
     }
     const remote = await getJobStatus(jobId);
     return res.json({ data: remote });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/check/:jobId/basic", async (req, res, next) => {
+  try {
+    const jobId = String(req.params.jobId || "").trim();
+    if (!jobId) {
+      return res.status(400).json({ message: "jobId is required." });
+    }
+    const remote = await getJobById(jobId);
+    return res.json({ data: remote });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/:jobId/cancel", async (req, res, next) => {
+  try {
+    const jobId = String(req.params.jobId || "").trim();
+    if (!jobId) {
+      return res.status(400).json({ message: "jobId is required." });
+    }
+
+    const remote = await cancelJob(jobId);
+    const localJob = await getByJobId(jobId);
+    let saved = null;
+    if (localJob) {
+      const cancelPatch = mapRemoteToJobPatch(localJob.file_url, remote, "canceled");
+      saved = await updateJobById(localJob._id, {
+        ...cancelPatch,
+        queue_status: "canceled",
+        finished_at: new Date(),
+      });
+      await startNextQueuedJob();
+    }
+
+    return res.json({
+      data: {
+        remote,
+        local: saved,
+      },
+    });
   } catch (error) {
     return next(error);
   }

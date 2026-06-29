@@ -22,7 +22,6 @@ async function getJsonNoCache(url, data) {
     url,
     method: "GET",
     data,
-    cache: false,
     dataType: "json",
     headers: {
       "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -308,6 +307,21 @@ async function cancelJobById(jobId, { refreshViews = true } = {}) {
   }
   showStatus(`Cancelled ${jobId}.`);
   logFeInfo("cancelJobById.success", { jobId });
+  return response.data || {};
+}
+
+async function deleteJobById(jobId, { deleteVdb = true, refreshViews = true } = {}) {
+  logFeInfo("deleteJobById.begin", { jobId, deleteVdb });
+  showStatus(`Deleting ${jobId} ...`);
+  const response = await $.ajax({
+    url: `./api/jobs/${encodeURIComponent(jobId)}?delete_vdb=${deleteVdb ? "true" : "false"}`,
+    method: "DELETE",
+  });
+  if (refreshViews) {
+    await loadQueueViews();
+  }
+  showStatus(`Deleted ${jobId}.`);
+  logFeInfo("deleteJobById.success", { jobId, deleteVdb });
   return response.data || {};
 }
 
@@ -1051,6 +1065,26 @@ $(document).ready(async () => {
       showStatus(`Cancel failed: ${extractError(error)}`);
     } finally {
       $("#jobCancelBtn").prop("disabled", false);
+    }
+  });
+
+  $("#jobDeleteBtn").on("click", async () => {
+    const jobId = $("#jobIdInput").val().trim();
+    if (!jobId) {
+      showStatus("Please input a job_id first.");
+      return;
+    }
+    $("#jobDeleteBtn").prop("disabled", true);
+    $("#jobCheckerOutput").text("Deleting job...");
+    try {
+      const payload = await deleteJobById(jobId, { deleteVdb: true });
+      $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+    } catch (error) {
+      const payload = error.responseJSON?.detail || error.responseJSON || { message: error.message };
+      $("#jobCheckerOutput").text(JSON.stringify(payload, null, 2));
+      showStatus(`Delete failed: ${extractError(error)}`);
+    } finally {
+      $("#jobDeleteBtn").prop("disabled", false);
     }
   });
 

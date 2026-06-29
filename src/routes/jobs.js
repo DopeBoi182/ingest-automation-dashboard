@@ -9,6 +9,7 @@ const {
   getJobById,
   getJobStatus,
   cancelJob,
+  deleteJob,
 } = require("../services/ingestorClient");
 const {
   getAllJobs,
@@ -24,6 +25,7 @@ const {
   updateJobById,
   deleteQueuedById,
   clearQueuedJobs,
+  deleteByJobId,
 } = require("../storage/jobRepository");
 
 const router = express.Router();
@@ -543,6 +545,34 @@ router.get("/check/:jobId/basic", async (req, res, next) => {
     }
     const remote = await getJobById(jobId);
     return res.json({ data: remote });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/:jobId", async (req, res, next) => {
+  try {
+    const jobId = String(req.params.jobId || "").trim();
+    if (!jobId) {
+      return res.status(400).json({ message: "jobId is required." });
+    }
+
+    const deleteVdb = toBoolean(req.query?.delete_vdb, true);
+    const remote = await deleteJob(jobId, { deleteVdb });
+    const localDeleted = await deleteByJobId(jobId);
+    let trigger = null;
+    if (localDeleted?.queue_status === "processing") {
+      trigger = await startNextQueuedJob();
+    }
+
+    return res.json({
+      data: {
+        remote,
+        local: localDeleted,
+        delete_vdb: deleteVdb,
+        trigger,
+      },
+    });
   } catch (error) {
     return next(error);
   }

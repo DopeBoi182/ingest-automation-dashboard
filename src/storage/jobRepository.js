@@ -233,6 +233,15 @@ async function clearQueuedJobs() {
   });
 }
 
+async function deleteByJobId(jobId) {
+  return updateData(async (data) => {
+    const index = data.jobs.findIndex((x) => x.job_id === jobId);
+    if (index < 0) return { data, result: null };
+    const [deleted] = data.jobs.splice(index, 1);
+    return { data, result: deleted };
+  });
+}
+
 module.exports = {
   getAllJobs,
   getQueuedJobs,
@@ -247,4 +256,5 @@ module.exports = {
   updateJobById,
   deleteQueuedById,
   clearQueuedJobs,
+  deleteByJobId,
 };

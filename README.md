@@ -57,6 +57,7 @@ On startup, check server log:
 - `POST /api/jobs/process/trigger`
 - `POST /api/jobs/process/tick`
 - `POST /api/jobs/:jobId/refresh`
+- `DELETE /api/jobs/:jobId?delete_vdb=true|false`
 - `POST /api/jobs/refresh-all`
 - `POST /api/jobs/queue/:id/force-replace`
 - `GET /api/jobs/process`

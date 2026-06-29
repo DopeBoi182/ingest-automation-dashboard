@@ -205,6 +205,33 @@ async function cancelJob(jobId) {
   }
 }
 
+async function deleteJob(jobId, options = {}) {
+  const deleteVdb = toBoolean(options?.deleteVdb, true);
+  const endpoint = `${env.statusEndpointPrefix}/${jobId}?delete_vdb=${deleteVdb ? "true" : "false"}`;
+  logIngestorInfo("deleteJob.begin", {
+    externalBaseUrl: env.externalBaseUrl,
+    endpoint,
+    jobId,
+    deleteVdb,
+  });
+  try {
+    const response = await request({
+      method: "DELETE",
+      endpoint,
+      timeoutMs: env.requestTimeoutMs,
+    });
+    logIngestorInfo("deleteJob.success", {
+      statusCode: response?.status,
+      jobId,
+      deleteVdb,
+    });
+    return response.data;
+  } catch (error) {
+    logIngestorError("deleteJob", error, { jobId, deleteVdb });
+    throw error;
+  }
+}
+
 async function askQna(payload) {
   logIngestorInfo("askQna.begin", {
     externalBaseUrl: env.externalBaseUrl,
@@ -254,6 +281,7 @@ module.exports = {
   getJobById,
   getJobStatus,
   cancelJob,
+  deleteJob,
   askQna,
   classifyTags,
 };
